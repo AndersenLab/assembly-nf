@@ -44,7 +44,7 @@ workflow {
         .splitCsv(sep: "\t",header: true)
 	.view { row -> "${row.strain} - ${row.bam_path}" }
 
-    // markdup(bam_ch)
+    markdup(bam_ch)
     // hifiasm(markdup.out.uniq))
 }
 
@@ -82,16 +82,24 @@ process gensheet {
 }
 
 process markdup {
-    label 'pb mark duplicates'
+
+    publishDir(
+        path: "${params.output}",
+        mode: 'copy',
+    )
+
+    label 'pb_mark_duplicates'
 
     input:
     tuple val(strain), path(bam) // might need to add val(filename) so it can be used as regex for naming emitted uniq bam
 
     output:
-    tuple val(strain), path(""), emit: uniq
+    tuple val(strain), path("${bam%.*}.uniq.fasta"), emit: uniq
 
     script:
     """
+    pbmarkdup $bam ${bam%.*}.uniq.fasta --dup-file ${bam%.*}.dups.fasta
+
     // run markdup
     // dynamically name outputs
     // single uniq bams get emitted in path()
