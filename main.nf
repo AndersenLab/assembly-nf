@@ -91,17 +91,13 @@ process markdup {
     label 'pb_mark_duplicates'
 
     input:
-    tuple val(strain), path(bam) // might need to add val(filename) so it can be used as regex for naming emitted uniq bam
+    tuple val(strain), path(bam) 
 
     output:
-    tuple val(strain), path("${bam%.*}.uniq.fasta"), emit: uniq
+    tuple val(strain), path("${bam.baseName}.uniq.fasta"), emit: uniq
 
     script:
     """
-    pbmarkdup $bam ${bam%.*}.uniq.fasta --dup-file ${bam%.*}.dups.fasta
-
-    // run markdup
-    // dynamically name outputs
-    // single uniq bams get emitted in path()
+    pbmarkdup $bam ${bam.baseName}.uniq.fasta --dup-file ${bam.baseName}.dups.fasta
     """
 }
