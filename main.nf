@@ -5,6 +5,7 @@ nextflow.enable.dsl=2
 */
 
 date = new Date().format('yyyyMMdd')
+log.info("Source: ${params.source}")
 
 if (params.debug) {
     println """
@@ -13,8 +14,34 @@ if (params.debug) {
     params.output = "assembly-${date}-debug"
     params.pbdata = "${workflow.projectDir}/test_data"
 } else {
-    params.output = "assembly-${date}"
-    params.pbdata = "${params.data_path}/${params.raw_dir}"
+    if (params.source == 'default') {
+        println """
+            Running on default source.
+            """
+        if (params.sample_sheet == null) {
+            println """
+            Please specify a sample sheet with option --sample_sheet.
+            """
+            exit 1
+        }
+        if (params.outdir == null) {
+            println """
+            Please specify an output directory name with option --outdir.
+            """
+            exit 1
+        }
+        params.output = "${params.outdir}-assembly"
+        // params.pbdata = "${params.data_path}"
+    } else if (params.source == 'umd') {
+        println """
+            Running on UMD source.
+            """
+        params.output = "${params.raw_dir}-assembly"
+        params.pbdata = "${params.data_path}/${params.raw_dir}"
+    } else {
+	log.info("Missing source, exiting.")
+        exit 1
+    }
 }
 
 //log.info("${params.data_path}")
@@ -36,14 +63,20 @@ def log_summary() {
 // Start the workflow
 workflow {
     // Call the gensheet process and store the result in a variable
-    input_dir = file(params.pbdata)
-
-    file_list = gensheet(input_dir,params.data_path)
     
-    bam_ch = gensheet.out.bam
-        .splitCsv(sep: "\t",header: true)
-	.view { row -> "${row.strain} - ${row.bam_path}" }
-
+    if (params.source == "umd") {
+        input_dir = file(params.pbdata)
+        file_list = gensheet(input_dir,params.data_path)
+    
+        bam_ch = gensheet.out.bam
+            .splitCsv(sep: "\t",header: true)
+	    .view { row -> "${row.strain} - ${row.bam_path}" }
+    } else {
+         bam_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+            .ifEmpty { exit 1, "sample sheet not found" }
+            .splitCsv(sep: "\t",header: true)
+            .view { row -> "${row.strain} - ${row.bam_path}" }
+    }
     markdup(bam_ch)
     rstat_ch = markdup.out.rstat.collectFile(name: "rstat_out.txt").view()
 
