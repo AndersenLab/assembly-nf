@@ -70,18 +70,61 @@ workflow {
     
         bam_ch = gensheet.out.bam
             .splitCsv(sep: "\t",header: true)
-	    .view { row -> "${row.strain} - ${row.bam_path}" }
+	    .map { row -> [row.strain, row.bam_path] }
+	    //.view { row -> "${row.strain} - ${row.bam_path}" }
     } else {
          bam_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
             .ifEmpty { exit 1, "sample sheet not found" }
             .splitCsv(sep: "\t",header: true)
-            .view { row -> "${row.strain} - ${row.bam_path}" }
+            .map { row -> [row.strain, row.bam_path] }
+            //.view { row -> "${row.strain} - ${row.bam_path}" }
     }
 
-    markdup(bam_ch)
+  
+    master_ch = Channel.fromPath(params.ext_master, checkIfExists: true)
+	.splitCsv(sep: "\t",header: true)
+        .map { row -> [row.strain, row.bam] }
+	// .view { row -> "${row.strain} - ${row.bam} - ${row.run}" }
+
+    master_join = master_ch
+        .groupTuple() 
+        .join(bam_ch)
+	.map { row -> [row[0], row[1] + row[2]] }
+	//.view()
+
+   // master_keys = master_join.map { it[0] }.collect().view()
+    
+    master_keys_ch = master_join.map { it[0] }.collect()
+
+    //bam_nmerge = bam_ch
+        //.join(master_keys)
+        //.difference(bam_ch)
+    //    .filter { row -> row[0] !in master_keys }
+    //     .view()
+
+    bam_nmerge = bam_ch.filter { row ->
+    def master_keys = master_keys_ch.get().toSet() // Waits until `collect()` completes
+    !master_keys.contains(row[0]) // Filters out matching rows
+    }
+
+    //master_join_ch = bam_ch
+    //    .mix(master_ch)
+    //    .groupTuple()
+        //.map{ row -> [row[0], row[1], row[2]] }
+        //.groupTuple()
+        //.view()
+
+    merged_bams = merge_bam(master_join)
+    
+    bam_ch_merged = merged_bams.merged
+        .mix(bam_nmerge)
+	//.view()
+
+
+    markdup(bam_ch_merged)
 
     rstat_ch = markdup.out.rstat.collectFile(name: "rstat_out.txt").view()
-
+    
     fastafilt(markdup.out.uniq)
 
     funiq_ch = fastafilt.out.funiq
@@ -89,9 +132,6 @@ workflow {
 
     assemble(funiq_ch)
     
-    // asm_ch, astat_ch = assemble(uniq_ch)
-    // uniq_ch, rstat_ch = markdup(bam_ch)
-    // rstat_ch = markdup.out.rstat
     astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1).view()
     
     if (params.source == "default") {
@@ -100,10 +140,9 @@ workflow {
         gatherstats(rstat_ch, astat_ch, params.raw_dir)
     }
 
-    // gatherstats(markdup.out.rstat, assemble.out.astat)
-    // getstats(assemble.out.asm)
-
 }
+
+
 
 process gensheet {
 
@@ -128,13 +167,30 @@ process gensheet {
     # input_dir=\$(realpath ${input_dir})
     # echo "$input_path"
     # List directories and strip paths
-    printf "%s\\n" ${input_dir}/*/ | sed 's/ /\\\\n/g' | sed 's|.*/\\([^/]*\\)/[^/]*|\\1|' > strains.tmp
+    printf "%s\\n" ${input_dir}/*/ | sed 's/ /\\\\n/g' | sed 's|.*/\\([^/]*\\)/[^/]*|\\1|' | sed 's/_.*//' > strains.tmp
 
     #printf "%s\\n" ${input_dir}/*/*/*/*.bam | sed 's/ /\\\\n/g' > bams.tmp
     # List .bam files and replace spaces with newlines
     printf "%s\\n" ${input_dir}/*/*/*.bam | sed 's/ /\\\\n/g' | awk -v append_path="${input_path}" -v OFS="/" '{print append_path,\$0}' > bams.tmp
 
     paste strains.tmp bams.tmp >> sample_sheet_bam.txt
+    """
+}
+
+process merge_bam {
+
+    label 'merge'
+
+    input:
+    tuple val(strain), path(bam)
+
+    output:
+    tuple val(strain), file("new_${strain}.bam"), emit: merged
+
+    script:
+    """
+    samtools merge -o new_${strain}.bam $bam
+    #sambamba index --nthreads=${task.cpus} new_${strain}.bam
     """
 }
 
