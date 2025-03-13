@@ -1,3 +1,4 @@
+
 nextflow.enable.dsl=2
 
 /*
@@ -62,68 +63,85 @@ def log_summary() {
 
 // Start the workflow
 workflow {
-    // Call the gensheet process and store the result in a variable
     
+    seqrun_file = '"https://docs.google.com/spreadsheets/d/1CpSpzU1p-WtGKIMBK99DL5AeZb-A8QrHPuLkM_fAuEY/export?gid=484600292&format=csv"'
+    seq_ch = get_seqrun(seqrun_file)
+            .splitCsv(sep: "\t",header: true)
+            .map {row -> [row.sample, row.species] }
+            .collect(flat: false)
+            .flatten()
+            .buffer(size: 2)
+            //.map { row -> [row[0], row[1]] }
+            //.view{ row -> "$row[0] - $row[2]}
+
+    // Call the gensheet process and store the result in a variable
     if (params.source == "umd") {
+
         input_dir = file(params.pbdata)
         file_list = gensheet(input_dir,params.data_path)
     
         bam_ch = gensheet.out.bam
             .splitCsv(sep: "\t",header: true)
 	    .map { row -> [row.strain, row.bam_path] }
-	    //.view { row -> "${row.strain} - ${row.bam_path}" }
+
     } else {
+          
          bam_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
             .ifEmpty { exit 1, "sample sheet not found" }
             .splitCsv(sep: "\t",header: true)
             .map { row -> [row.strain, row.bam_path] }
-            //.view { row -> "${row.strain} - ${row.bam_path}" }
     }
-
-  
-    master_ch = Channel.fromPath(params.ext_master, checkIfExists: true)
-	.splitCsv(sep: "\t",header: true)
-        .map { row -> [row.strain, row.bam] }
-	// .view { row -> "${row.strain} - ${row.bam} - ${row.run}" }
-
-    master_join = master_ch
-        .groupTuple() 
-        .join(bam_ch)
-	.map { row -> [row[0], row[1] + row[2]] }
-	//.view()
-
-   // master_keys = master_join.map { it[0] }.collect().view()
     
-    master_keys_ch = master_join.map { it[0] }.collect()
+    if (params.ext_master == null) {
+        grouped_bam = bam_ch
+            .groupTuple()
+            .filter { row -> row[1].size() > 1 }
+        
+        merged_bams = merge_bam(grouped_bam)
 
-    //bam_nmerge = bam_ch
-        //.join(master_keys)
-        //.difference(bam_ch)
-    //    .filter { row -> row[0] !in master_keys }
-    //     .view()
+        bam_ch_merged = merged_bams
+            .mix(bam_ch
+                .groupTuple()
+                .filter { row -> row[1].size() == 1 }
+                .map { row -> row[1] = row[1].first()
+                              return row } )
+             //.view()
 
-    bam_nmerge = bam_ch.filter { row ->
-    def master_keys = master_keys_ch.get().toSet() // Waits until `collect()` completes
-    !master_keys.contains(row[0]) // Filters out matching rows
+    } else { 
+        master_ch = Channel.fromPath(params.ext_master, checkIfExists: true)
+	    .splitCsv(sep: "\t",header: true)
+            .map { row -> [row.strain, row.bam_path] }
+	    //.view { row -> "${row.strain} - ${row.bam_path} - ${row.run}" }
+
+        master_join = master_ch
+            .groupTuple() 
+            .join(bam_ch)
+	    .map { row -> [row[0], row[1] + row[2]] }
+	    //.view()
+ 
+        master_keys_ch = master_join.map { it[0] }.collect()
+
+    
+        bam_nmerge = bam_ch.filter { row ->
+        def master_keys = master_keys_ch.get().toSet() // Waits until `collect()` completes
+        !master_keys.contains(row[0]) // Filters out matching rows
+        }
+
+        merged_bams = merge_bam(master_join)
+    
+        bam_ch_merged = merged_bams.merged
+            .mix(bam_nmerge)
+	    //.view()
     }
-
-    //master_join_ch = bam_ch
-    //    .mix(master_ch)
-    //    .groupTuple()
-        //.map{ row -> [row[0], row[1], row[2]] }
-        //.groupTuple()
-        //.view()
-
-    merged_bams = merge_bam(master_join)
+    //seq_ch.view()
+    mapped_sp_bam = bam_ch_merged
+                        //.view()
+                        .join(seq_ch)
+                        //.view()
     
-    bam_ch_merged = merged_bams.merged
-        .mix(bam_nmerge)
-	//.view()
+    markdup(mapped_sp_bam)
 
-
-    markdup(bam_ch_merged)
-
-    rstat_ch = markdup.out.rstat.collectFile(name: "rstat_out.txt").view()
+    rstat_ch = markdup.out.rstat.collectFile(name: "rstat_out.txt")
     
     fastafilt(markdup.out.uniq)
 
@@ -132,17 +150,56 @@ workflow {
 
     assemble(funiq_ch)
     
-    astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1).view()
+    astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1)
     
+    // seq_ch.view()
+    seq_flat = seq_ch
+                .map { row -> row.join('\t') }
+                //.map { row -> "${row[0]}\t${row[1]}" }
+                //.view()
+                //.map { it.join(",") }
+                //.view()
+                //.collect()
+                .map { rows -> ["sp2str.txt"] + rows }
+                .collect()
+                .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
+                //.view()
+
     if (params.source == "default") {
-        gatherstats(rstat_ch, astat_ch, params.outdir)
+        gatherstats(rstat_ch, astat_ch, params.outdir, seq_flat)
     } else {
-        gatherstats(rstat_ch, astat_ch, params.raw_dir)
+        gatherstats(rstat_ch, astat_ch, params.raw_dir, seq_flat)
     }
 
 }
 
+process get_seqrun {
+    
+    publishDir(
+        path: "${params.output}",
+        mode: 'copy',
+    )
 
+    input:
+    val(seqrun)
+    
+    output:
+    path("sp2str_table.tsv"), emit: seqrun
+
+    script:
+    """
+    #awk '{print \$0}' $seqrun > sp2str_table.tsv
+    wget -O sp.csv $seqrun
+    awk -F ',' -v OFS='\t' '{print \$4,\$5}' sp.csv |\
+    sed 's/C\\.[[:space:]]*elegans/CE/' | \
+    sed 's/C\\.[[:space:]]*tropicalis/CT/' | \
+    sed 's/C\\.[[:space:]]*briggsae/CB/' | \
+    sed 's/C\\.[[:space:]]*nigoni/CN/' | \
+    sed 's/\\.[[:space:]]/\\./g' |
+    awk -F'\t' '{sub(/_.*/,"",\$1); print \$1 "\t" \$2}' | \
+    uniq  > sp2str_table.tsv
+    """
+}
 
 process gensheet {
 
@@ -154,8 +211,8 @@ process gensheet {
     label 'create_sample_sheet'
 
     input:
-    path input_dir
-    val input_path
+    path(input_dir)
+    val(input_path)
 
     output:
     path("sample_sheet_bam.txt"), emit: bam
@@ -180,6 +237,7 @@ process gensheet {
 process merge_bam {
 
     label 'merge'
+    executor workflow.stubRun ? 'local' : 'slurm'
 
     input:
     tuple val(strain), path(bam)
@@ -191,6 +249,11 @@ process merge_bam {
     """
     samtools merge -o new_${strain}.bam $bam
     #sambamba index --nthreads=${task.cpus} new_${strain}.bam
+    """
+
+    stub:
+    """
+    touch new_${strain}.bam
     """
 }
 
@@ -204,31 +267,38 @@ process markdup {
     label 'pb_mark_duplicates'
 
     input:
-    tuple val(strain), path(bam) 
+    tuple val(strain), path(bam), val(species)
 
     output:
-    tuple val(strain), path("${bam.baseName}.uniq.fasta"), emit: uniq
-    path("${bam.baseName}.uniq.fasta.read_stats.txt"), emit: rstat
+    tuple val(strain), path("${bam.baseName}.uniq.fasta"), val(species), emit: uniq
+    path("${species}/read_stat/${bam.baseName}.uniq.fasta.read_stats.txt"), emit: rstat
 
     script:
     """
+    mkdir -p ${species}/read_stat/
     pbmarkdup $bam ${bam.baseName}.uniq.fasta --dup-file ${bam.baseName}.dups.fasta
     count="\$(grep '^>' ${bam.baseName}.uniq.fasta | wc -l)"; echo \$count > read_yield.txt
     grep -v "^>" ${bam.baseName}.uniq.fasta | awk '{total+=length(\$0); count++} END {if(count>0) print total/count; else print "No sequences found"}' > read_avglen.txt
-    paste -d '\t' read_yield.txt read_avglen.txt | awk -v strain=$strain -v OFS='\t' '{print strain,\$0}' > ${bam.baseName}.uniq.fasta.read_stats.txt
+    paste -d '\t' read_yield.txt read_avglen.txt | awk -v strain=$strain -v OFS='\t' '{print strain,\$0}' > ${species}/read_stat/${bam.baseName}.uniq.fasta.read_stats.txt
     #grep "^>" ${bam.baseName}.uniq.fasta > ${bam.baseName}.read_count.txt
     """
-    //read_count = file("${params.output}/read_count.txt").text.trim()
+    
+    stub:
+    """
+    touch ${bam.baseName}.uniq.fasta
+    touch ${bam.baseName}.uniq.fasta.read_stats.txt
+    """
+
 }
 
 
 process fastafilt {
 
     input:
-    tuple val(strain), path(uniq)  // Input: strain and path to FASTA file
+    tuple val(strain), path(uniq), val(species)  // Input: strain and path to FASTA file
 
     output:
-    tuple val(strain), path("${uniq.baseName}.filtered.fasta"), emit: funiq
+    tuple val(strain), path("${uniq.baseName}.filtered.fasta"), val(species), emit: funiq
     
     script:
     """
@@ -243,39 +313,13 @@ process fastafilt {
         touch ${uniq.baseName}.filtered.fasta
     fi
     """
+    
+    stub:
+    """
+    touch ${uniq.baseName}.filtered.fasta
+    """
+
 }
-
-//process fastafilt {
-//
-//    input:
-//    tuple val(strain), path(uniq)  // Input tuple: strain and path to FASTA file
-//
-//    output:
-//    tuple val(strain), path("${uniq.baseName}.filtered.fasta"), emit: funiq  // Output tuple: strain and path to FASTA file if read count > 500
-//    tuple val(strain), path('dummy.fasta'), emit: dummy  // Dummy output for cases that don't meet the read count condition
-//
-//    script:
-//    """
-//    # Count the number of reads in the FASTA file using grep
-//    read_count=\$(grep -c '^>' ${uniq})
-//
-//    # Check if the read count is greater than 500
-//    if [ \$read_count -gt 500 ]; then
-//        # If the read count is greater than 500, emit the FASTA file
-//        echo "FASTA file '${uniq}' has more than 500 reads. Emitting."
-//        cp ${uniq} ${uniq.baseName}.filtered.fasta
-//        # Emit the FASTA file that passed the read count check
-//        echo "${strain}, ${uniq.baseName}.filtered.fasta"
-//    else
-//        # If the read count is less than or equal to 500, emit a dummy file or null
-//        echo "FASTA file '${uniq}' has fewer than 500 reads. Skipping."
-//        touch dummy.fasta
-//        # Emit a dummy file to satisfy Nextflow's output requirement
-//        echo "${strain}, dummy.fasta"
-//    fi
-//    """
-//}
-
 
 process assemble {
 
@@ -287,17 +331,25 @@ process assemble {
     label 'pb_assemble'
 
     input:
-    tuple val(strain), path(uniq)
+    tuple val(strain), path(uniq), val(species)
     
     output:
-    tuple val(strain), path("${uniq.baseName}.inbred.asm.bp.p_ctg.fa"), emit: asm
-    path("${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats"), emit: astat
+    tuple val(strain), path("$species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa"), val(species), emit: asm
+    path("$species/asm_stat/${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats"), emit: astat
 
     script:
     """
+    mkdir -p ${species}/asm_stat/
+    mkdir -p ${species}/assemblies/
     hifiasm -f0 -l0 -t 12 -o ${uniq.baseName}.inbred.asm $uniq
-    awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.inbred.asm.bp.p_ctg.gfa > ${uniq.baseName}.inbred.asm.bp.p_ctg.fa
-    stats.sh -format=6 -in=${uniq.baseName}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > ${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats
+    awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.inbred.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa
+    stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats
+    """
+
+    stub:
+    """
+    touch ${uniq.baseName}.inbred.asm.bp.p_ctg.fa
+    touch ${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats
     """
 }
 
@@ -314,19 +366,32 @@ process gatherstats {
     val(rstat)
     val(astat)
     val(odir)
+    path(seqflat)
+    //tuple val(sp), val(strain)
 
     output:
     path("${odir}_all_stats.txt")
+    path("${odir}_SP_CONTENT.txt")
+    path("${odir}_sorted.sp2str.txt")
+    path("all_body.txt")
 
     script:
     """
     cat $astat > assembly_stats.txt
     cat $rstat | sort -k1,1 > read_stats.txt
     grep "^strain" assembly_stats.txt | sed 's/N50/X50/g' | sed 's/L50/N50/g' | sed 's/X50/L50/g' > header_asm.txt
-    echo -e "yield\tmean_readlen" > header_read.txt
+    echo -e "yield\tmean_readlen\tspecies" > header_read.txt
     paste -d '\t' header_asm.txt header_read.txt > all_header.txt
     grep -v "^strain" assembly_stats.txt | sort -k1,1 > body_asm.txt
     join -t \$'\t' body_asm.txt read_stats.txt > all_body.txt
-    cat all_header.txt all_body.txt > ${odir}_all_stats.txt
+    cat $seqflat > ${odir}_SP_CONTENT.txt
+    sort -k1,1 ${odir}_SP_CONTENT.txt | grep -v "(" | awk '\$2 ~ /^(CE|CB|CT|CN)\$/' > ${odir}_sorted.sp2str.txt
+    join -t \$'\t' all_body.txt ${odir}_sorted.sp2str.txt > ${odir}_all_body_sp.txt
+    cat all_header.txt ${odir}_all_body_sp.txt > ${odir}_all_stats.txt
+    """
+    
+    stub:
+    """
+    touch ${odir}_all_stats.txt
     """
 }
