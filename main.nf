@@ -71,6 +71,9 @@ workflow {
             .collect(flat: false)
             .flatten()
             .buffer(size: 2)
+            //.map { rows -> ["PB306", "CE"] + rows }
+            .concat(Channel.of(["PB306", "CE"]))
+            //.view()
             //.map { row -> [row[0], row[1]] }
             //.view{ row -> "$row[0] - $row[2]}
 
@@ -97,14 +100,17 @@ workflow {
             .groupTuple()
             .filter { row -> row[1].size() > 1 }
         
-        merged_bams = merge_bam(grouped_bam)
-
-        bam_ch_merged = merged_bams
-            .mix(bam_ch
+        single_ch = bam_ch
                 .groupTuple()
                 .filter { row -> row[1].size() == 1 }
                 .map { row -> row[1] = row[1].first()
-                              return row } )
+                              return row }  
+                //.view()
+
+        merged_bams = merge_bam(grouped_bam)
+
+        bam_ch_merged = merged_bams
+            .mix(single_ch)
              //.view()
 
     } else { 
@@ -133,6 +139,7 @@ workflow {
             .mix(bam_nmerge)
 	    //.view()
     }
+    
     //seq_ch.view()
     mapped_sp_bam = bam_ch_merged
                         //.view()
@@ -170,7 +177,6 @@ workflow {
     } else {
         gatherstats(rstat_ch, astat_ch, params.raw_dir, seq_flat)
     }
-
 }
 
 process get_seqrun {
@@ -224,7 +230,7 @@ process gensheet {
     # input_dir=\$(realpath ${input_dir})
     # echo "$input_path"
     # List directories and strip paths
-    printf "%s\\n" ${input_dir}/*/ | sed 's/ /\\\\n/g' | sed 's|.*/\\([^/]*\\)/[^/]*|\\1|' | sed 's/_.*//' > strains.tmp
+    printf "%s\\n" ${input_dir}/*/ | sed 's/ /\\\\n/g' | sed 's|.*/\\([^/]*\\)/[^/]*|\\1|' | sed 's/_.*//' > strains.tmp  ############ fix to extract strain from bam path 
 
     #printf "%s\\n" ${input_dir}/*/*/*/*.bam | sed 's/ /\\\\n/g' > bams.tmp
     # List .bam files and replace spaces with newlines
@@ -341,7 +347,7 @@ process assemble {
     """
     mkdir -p ${species}/asm_stat/
     mkdir -p ${species}/assemblies/
-    hifiasm -f0 -l0 -t 12 -o ${uniq.baseName}.inbred.asm $uniq
+    hifiasm -f0 -l0 -t 48 -o ${uniq.baseName}.inbred.asm $uniq
     awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.inbred.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa
     stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats
     """
@@ -384,7 +390,7 @@ process gatherstats {
     paste -d '\t' header_asm.txt header_read.txt > all_header.txt
     grep -v "^strain" assembly_stats.txt | sort -k1,1 > body_asm.txt
     join -t \$'\t' body_asm.txt read_stats.txt > all_body.txt
-    cat $seqflat > ${odir}_SP_CONTENT.txt
+    cat $seqflat > ${odir}_SP_CONTENT.txt ####################### FIX SP 27 AND SP 30 ##############
     sort -k1,1 ${odir}_SP_CONTENT.txt | grep -v "(" | awk '\$2 ~ /^(CE|CB|CT|CN)\$/' > ${odir}_sorted.sp2str.txt
     join -t \$'\t' all_body.txt ${odir}_sorted.sp2str.txt > ${odir}_all_body_sp.txt
     cat all_header.txt ${odir}_all_body_sp.txt > ${odir}_all_stats.txt
