@@ -349,7 +349,7 @@ process assemble {
     mkdir -p ${species}/assemblies/
     hifiasm -f0 -l0 -t 48 -o ${uniq.baseName}.inbred.asm $uniq
     awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.inbred.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa
-    stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats
+    stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats ############################ ADD STRAIN NAME TO THE FINAL ASSEMBLY
     """
 
     stub:
