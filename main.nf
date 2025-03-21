@@ -63,17 +63,26 @@ def log_summary() {
 
 // Start the workflow
 workflow {
+ 
+    // seqrun_file = '"https://docs.google.com/spreadsheets/d/1CpSpzU1p-WtGKIMBK99DL5AeZb-A8QrHPuLkM_fAuEY/export?gid=484600292&format=csv"'
     
-    seqrun_file = '"https://docs.google.com/spreadsheets/d/1CpSpzU1p-WtGKIMBK99DL5AeZb-A8QrHPuLkM_fAuEY/export?gid=484600292&format=csv"'
-    seq_ch = get_seqrun(seqrun_file)
+    // Order of URLs is CB, CT, CE 
+    seqrun_files = Channel.of([
+        '"https://docs.google.com/spreadsheets/d/1IJHMLwuaxS_sEO31TyK5NLxPX7_qSd0bHNKverAv8-0/export?gid=1386059628&format=tsv"',
+        '"https://docs.google.com/spreadsheets/d/1mqXOlUX7UeiPBe8jfAwFZnqlzhb7X-eKGK_TydT7Gx4/export?gid=1642815395&format=tsv"',
+        '"https://docs.google.com/spreadsheets/d/1Rts4CZxkDiid3hux7EpE7CBAQfole6oWQs61dorYBX0/export?gid=538533765&format=tsv"'
+    ])
+    //seqrun_file_cn = '""'
+    //seqrun_file_unnamed = '""'
+    seq_ch = get_seqrun(seqrun_files)
             .splitCsv(sep: "\t",header: true)
             .map {row -> [row.sample, row.species] }
             .collect(flat: false)
             .flatten()
             .buffer(size: 2)
-            //.map { rows -> ["PB306", "CE"] + rows }
-            .concat(Channel.of(["PB306", "CE"]))
             //.view()
+            //.map { rows -> ["PB306", "CE"] + rows }
+            //.concat(Channel.of(["PB306", "CE"]))
             //.map { row -> [row[0], row[1]] }
             //.view{ row -> "$row[0] - $row[2]}
 
@@ -117,32 +126,40 @@ workflow {
         master_ch = Channel.fromPath(params.ext_master, checkIfExists: true)
 	    .splitCsv(sep: "\t",header: true)
             .map { row -> [row.strain, row.bam_path] }
-	    //.view { row -> "${row.strain} - ${row.bam_path} - ${row.run}" }
-
+            // .view { row -> "MASTER: ${row[0]} - ${row[1]}" } // Debugging ext_master	    
+        
+        // bam_ch.view { row -> "BAM: ${row[0]} - ${row[1]}" } // Debugging bam input
+    
         master_join = master_ch
             .groupTuple() 
             .join(bam_ch)
 	    .map { row -> [row[0], row[1] + row[2]] }
-	    //.view()
+	    // .view { row -> "JOINED: ${row[0]} - ${row[1]}" } // Debugging join output
  
-        master_keys_ch = master_join.map { it[0] }.collect()
+        master_keys_ch = master_join.map { it[0] }.collect().view() // Collects strain keys
 
-    
         bam_nmerge = bam_ch.filter { row ->
-        def master_keys = master_keys_ch.get().toSet() // Waits until `collect()` completes
-        !master_keys.contains(row[0]) // Filters out matching rows
+            def master_keys = master_keys_ch.get() // Ensures `collect()` completes before use
+            !master_keys.contains(row[0]) // Filters out matching rows
         }
+
+        // master_keys_ch = master_join.map { it[0] }.collect()
+    
+        // bam_nmerge = bam_ch.filter { row ->
+        // def master_keys = master_keys_ch.get().toSet() // Waits until `collect()` completes
+        // !master_keys.contains(row[0]) // Filters out matching rows
+        // }
 
         merged_bams = merge_bam(master_join)
     
         bam_ch_merged = merged_bams.merged
             .mix(bam_nmerge)
-	    //.view()
+	    // .view()
     }
     
     //seq_ch.view()
+   
     mapped_sp_bam = bam_ch_merged
-                        //.view()
                         .join(seq_ch)
                         //.view()
     
@@ -177,6 +194,7 @@ workflow {
     } else {
         gatherstats(rstat_ch, astat_ch, params.raw_dir, seq_flat)
     }
+    
 }
 
 process get_seqrun {
@@ -187,23 +205,32 @@ process get_seqrun {
     )
 
     input:
-    val(seqrun)
+    val(seqrun_files)
+    //val(seqrun_file_cb)
+    //val(seqrun_file_ct)
+    // val(seqrun_file_ce)
     
     output:
     path("sp2str_table.tsv"), emit: seqrun
 
     script:
     """
-    #awk '{print \$0}' $seqrun > sp2str_table.tsv
-    wget -O sp.csv $seqrun
-    awk -F ',' -v OFS='\t' '{print \$4,\$5}' sp.csv |\
-    sed 's/C\\.[[:space:]]*elegans/CE/' | \
-    sed 's/C\\.[[:space:]]*tropicalis/CT/' | \
-    sed 's/C\\.[[:space:]]*briggsae/CB/' | \
-    sed 's/C\\.[[:space:]]*nigoni/CN/' | \
-    sed 's/\\.[[:space:]]/\\./g' |
-    awk -F'\t' '{sub(/_.*/,"",\$1); print \$1 "\t" \$2}' | \
-    uniq  > sp2str_table.tsv
+    wget -O sp.csv ${seqrun_files[0]}
+    wget -O sp2.csv ${seqrun_files[1]}
+    wget -O sp3.csv ${seqrun_files[2]}
+    awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CB"}' sp.csv > cb.tsv
+    awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CT"}' sp2.csv > ct.tsv
+    awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CE"}' sp3.csv > ce.tsv
+    echo -e "sample\tspecies" > header.tsv
+    cat header.tsv cb.tsv ct.tsv ce.tsv | uniq  > sp2str_table.tsv
+
+    #awk -F ',' -v OFS='\t' '{print \$4,\$5}' sp.csv |\
+    #sed 's/C\\.[[:space:]]*elegans/CE/' | \
+    #sed 's/C\\.[[:space:]]*tropicalis/CT/' | \
+    #sed 's/C\\.[[:space:]]*briggsae/CB/' | \
+    #sed 's/C\\.[[:space:]]*nigoni/CN/' | \
+    #s ed 's/\\.[[:space:]]/\\./g' |
+    #awk -F'\t' '{sub(/_.*/,"",\$1); print \$1 "\t" \$2}' | \
     """
 }
 
@@ -225,18 +252,13 @@ process gensheet {
 
     script:
     """
-    echo -e "strain\tbam_path" > sample_sheet_bam.txt
-    # Ensure the input directory is absolute
-    # input_dir=\$(realpath ${input_dir})
-    # echo "$input_path"
-    # List directories and strip paths
-    printf "%s\\n" ${input_dir}/*/ | sed 's/ /\\\\n/g' | sed 's|.*/\\([^/]*\\)/[^/]*|\\1|' | sed 's/_.*//' > strains.tmp  ############ fix to extract strain from bam path 
-
-    #printf "%s\\n" ${input_dir}/*/*/*/*.bam | sed 's/ /\\\\n/g' > bams.tmp
-    # List .bam files and replace spaces with newlines
-    printf "%s\\n" ${input_dir}/*/*/*.bam | sed 's/ /\\\\n/g' | awk -v append_path="${input_path}" -v OFS="/" '{print append_path,\$0}' > bams.tmp
-
-    paste strains.tmp bams.tmp >> sample_sheet_bam.txt
+    echo -e "strain\tbam_path" > header.txt
+    
+    # Extract strain name and corresponding .bam path from full path in UMD source 
+    printf "%s\\n" ${input_dir}/*/*/*.bam | sed 's|${input_dir}/||' | sed 's|/| |' | awk -F' ' -v OFS='\t' '{sub(/_.*/,"",\$1); print \$1}' >> strains.txt
+    printf "%s\\n" $input_path/${input_dir}/*/*/*.bam > bams.txt
+    paste -d'\t' strains.txt bams.txt > temp1.txt
+    cat header.txt temp1.txt > sample_sheet_bam.txt
     """
 }
 
@@ -340,16 +362,16 @@ process assemble {
     tuple val(strain), path(uniq), val(species)
     
     output:
-    tuple val(strain), path("$species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa"), val(species), emit: asm
-    path("$species/asm_stat/${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats"), emit: astat
+    tuple val(strain), path("$species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa"), val(species), emit: asm
+    path("$species/asm_stat/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa.stats"), emit: astat
 
     script:
     """
     mkdir -p ${species}/asm_stat/
     mkdir -p ${species}/assemblies/
-    hifiasm -f0 -l0 -t 48 -o ${uniq.baseName}.inbred.asm $uniq
-    awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.inbred.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa
-    stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.inbred.asm.bp.p_ctg.fa.stats ############################ ADD STRAIN NAME TO THE FINAL ASSEMBLY
+    hifiasm -f0 -l0 -t 48 -o ${uniq.baseName}.${strain}.inbred.asm $uniq
+    awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa
+    stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa.stats
     """
 
     stub:
@@ -394,6 +416,7 @@ process gatherstats {
     sort -k1,1 ${odir}_SP_CONTENT.txt | grep -v "(" | awk '\$2 ~ /^(CE|CB|CT|CN)\$/' > ${odir}_sorted.sp2str.txt
     join -t \$'\t' all_body.txt ${odir}_sorted.sp2str.txt > ${odir}_all_body_sp.txt
     cat all_header.txt ${odir}_all_body_sp.txt > ${odir}_all_stats.txt
+    ### APPEND NEW SAMPLE SHEET TO MASTER SAMPLE SHEET??? NEED AN ARGUMENT ON ONLY IF EXT_MASTER MODE IS NOT BEING USED?? ####
     """
     
     stub:
