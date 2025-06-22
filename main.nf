@@ -70,7 +70,8 @@ workflow {
     seqrun_files = Channel.of([
         '"https://docs.google.com/spreadsheets/d/1IJHMLwuaxS_sEO31TyK5NLxPX7_qSd0bHNKverAv8-0/export?gid=1386059628&format=tsv"',
         '"https://docs.google.com/spreadsheets/d/1mqXOlUX7UeiPBe8jfAwFZnqlzhb7X-eKGK_TydT7Gx4/export?gid=1642815395&format=tsv"',
-        '"https://docs.google.com/spreadsheets/d/1Rts4CZxkDiid3hux7EpE7CBAQfole6oWQs61dorYBX0/export?gid=538533765&format=tsv"'
+        '"https://docs.google.com/spreadsheets/d/1Rts4CZxkDiid3hux7EpE7CBAQfole6oWQs61dorYBX0/export?gid=538533765&format=tsv"',
+        '"https://docs.google.com/spreadsheets/d/1-5EiJHmMqVBm0Emj_wekdDRv_-dAdmmwS9poz_Jxb90/export?gid=578306341&format=tsv"'
     ])
     //seqrun_file_cn = '""'
     //seqrun_file_unnamed = '""'
@@ -80,8 +81,10 @@ workflow {
             .collect(flat: false)
             .flatten()
             .buffer(size: 2)
+            // NEED TO FIX VX34 FOR BRIGGSAE!?!?!
+
             //.view()
-            //.map { rows -> ["PB306", "CE"] + rows }
+            //.map { rows -> ["PB306", "CE"] + rows } 
             //.concat(Channel.of(["PB306", "CE"]))
             //.map { row -> [row[0], row[1]] }
             //.view{ row -> "$row[0] - $row[2]}
@@ -157,7 +160,6 @@ workflow {
 	    // .view()
     }
     
-    //seq_ch.view()
    
     mapped_sp_bam = bam_ch_merged
                         .join(seq_ch)
@@ -176,7 +178,6 @@ workflow {
     
     astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1)
     
-    // seq_ch.view()
     seq_flat = seq_ch
                 .map { row -> row.join('\t') }
                 //.map { row -> "${row[0]}\t${row[1]}" }
@@ -206,9 +207,6 @@ process get_seqrun {
 
     input:
     val(seqrun_files)
-    //val(seqrun_file_cb)
-    //val(seqrun_file_ct)
-    // val(seqrun_file_ce)
     
     output:
     path("sp2str_table.tsv"), emit: seqrun
@@ -218,11 +216,15 @@ process get_seqrun {
     wget -O sp.csv ${seqrun_files[0]}
     wget -O sp2.csv ${seqrun_files[1]}
     wget -O sp3.csv ${seqrun_files[2]}
+    wget -O sp4.csv ${seqrun_files[3]}
+
     awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CB"}' sp.csv > cb.tsv
     awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CT"}' sp2.csv > ct.tsv
     awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CE"}' sp3.csv > ce.tsv
+    awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CN"}' sp4.csv > cn.tsv
+
     echo -e "sample\tspecies" > header.tsv
-    cat header.tsv cb.tsv ct.tsv ce.tsv | uniq  > sp2str_table.tsv
+    cat header.tsv cb.tsv ct.tsv ce.tsv cn.tsv | uniq  > sp2str_table.tsv
 
     #awk -F ',' -v OFS='\t' '{print \$4,\$5}' sp.csv |\
     #sed 's/C\\.[[:space:]]*elegans/CE/' | \
@@ -412,11 +414,10 @@ process gatherstats {
     paste -d '\t' header_asm.txt header_read.txt > all_header.txt
     grep -v "^strain" assembly_stats.txt | sort -k1,1 > body_asm.txt
     join -t \$'\t' body_asm.txt read_stats.txt > all_body.txt
-    cat $seqflat > ${odir}_SP_CONTENT.txt ####################### FIX SP 27 AND SP 30 ##############
+    cat $seqflat > ${odir}_SP_CONTENT.txt 
     sort -k1,1 ${odir}_SP_CONTENT.txt | grep -v "(" | awk '\$2 ~ /^(CE|CB|CT|CN)\$/' > ${odir}_sorted.sp2str.txt
     join -t \$'\t' all_body.txt ${odir}_sorted.sp2str.txt > ${odir}_all_body_sp.txt
     cat all_header.txt ${odir}_all_body_sp.txt > ${odir}_all_stats.txt
-    ### APPEND NEW SAMPLE SHEET TO MASTER SAMPLE SHEET??? NEED AN ARGUMENT ON ONLY IF EXT_MASTER MODE IS NOT BEING USED?? ####
     """
     
     stub:
