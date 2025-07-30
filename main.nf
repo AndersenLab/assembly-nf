@@ -73,8 +73,9 @@ workflow {
         '"https://docs.google.com/spreadsheets/d/1Rts4CZxkDiid3hux7EpE7CBAQfole6oWQs61dorYBX0/export?gid=538533765&format=tsv"',
         '"https://docs.google.com/spreadsheets/d/1-5EiJHmMqVBm0Emj_wekdDRv_-dAdmmwS9poz_Jxb90/export?gid=578306341&format=tsv"'
     ])
-    //seqrun_file_cn = '""'
-    //seqrun_file_unnamed = '""'
+    // NEED TO ADD A SHEET THAT CONTAINS SP27 AND SP30
+
+
     seq_ch = get_seqrun(seqrun_files)
             .splitCsv(sep: "\t",header: true)
             .map {row -> [row.sample, row.species] }
@@ -135,15 +136,15 @@ workflow {
     
         master_join = master_ch
             .groupTuple() 
-            .join(bam_ch)
-	    .map { row -> [row[0], row[1] + row[2]] }
+            .join(bam_ch) // this is an inner join - so if there is not a strain to join by, then it is dropped - so this only contains strains that have been previously sequenced
+	    .map { row -> [row[0], row[1] + row[2]] } 
 	    // .view { row -> "JOINED: ${row[0]} - ${row[1]}" } // Debugging join output
  
         master_keys_ch = master_join.map { it[0] }.collect().view() // Collects strain keys
 
         bam_nmerge = bam_ch.filter { row ->
             def master_keys = master_keys_ch.get() // Ensures `collect()` completes before use
-            !master_keys.contains(row[0]) // Filters out matching rows
+            !master_keys.contains(row[0]) // Filters out matching rows (i.e, strains that have been sequenced multiple times and are in master_join)
         }
 
         // master_keys_ch = master_join.map { it[0] }.collect()
@@ -156,13 +157,13 @@ workflow {
         merged_bams = merge_bam(master_join)
     
         bam_ch_merged = merged_bams.merged
-            .mix(bam_nmerge)
+            .mix(bam_nmerge) // .mix is like dplyr::bind_rows - binds together the table of strain with bams (some merged, some not merged))
 	    // .view()
     }
     
    
     mapped_sp_bam = bam_ch_merged
-                        .join(seq_ch)
+                        .join(seq_ch) // adding species resolution - an inner_join so we must always use species sheets that contain species resolution for all of the strains we are working with
                         //.view()
     
     markdup(mapped_sp_bam)
@@ -194,9 +195,9 @@ workflow {
         gatherstats(rstat_ch, astat_ch, params.outdir, seq_flat)
     } else {
         gatherstats(rstat_ch, astat_ch, params.raw_dir, seq_flat)
-    }
-    
+    }   
 }
+
 
 process get_seqrun {
     
