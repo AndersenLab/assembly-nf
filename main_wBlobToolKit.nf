@@ -75,7 +75,7 @@ workflow {
     // NEED TO ADD A SHEET THAT CONTAINS SP27 AND SP30
 
 
-    seq_ch = get_seqrun(seqrun_files)
+    seq_ch = get_seqrun(seqrun_files)                                           
             .splitCsv(sep: "\t",header: true)
             .map {row -> [row.sample, row.species] }
             .collect(flat: false)
@@ -126,7 +126,7 @@ workflow {
             .join(bam_ch) // this is an inner join - so if there is not a strain to join by, then it is dropped - so this only contains strains that have been previously sequenced
 	    .map { row -> [row[0], row[1] + row[2]] } 
  
-        master_keys_ch = master_join.map { it[0] }.collect().view() // Collects strain keys
+        master_keys_ch = master_join.map { it[0] }.collect().view() // Collects strain keys - prints out the name of the strains that have been sequenced previously and whose data will be merged with current run
 
         bam_nmerge = bam_ch.filter { row ->
             def master_keys = master_keys_ch.get() // Ensures `collect()` completes before use
@@ -143,7 +143,7 @@ workflow {
     mapped_sp_bam = bam_ch_merged
                         .join(seq_ch) // adding species resolution - an inner_join so we must always use species sheets that contain species resolution for all of the strains we are working with
     
-    markdup(mapped_sp_bam)
+    markdup(mapped_sp_bam)                                                       // DO WE REALLY NEED TO PUBLISH THESE FASTAS????????????????????????????????????????????????????????????????????????????????????
 
     rstat_ch = markdup.out.rstat.collectFile(name: "rstat_out.txt")
     
@@ -154,7 +154,7 @@ workflow {
 
     assemble(funiq_ch)
     
-    astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1)
+    astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1) // keeps the header for the first file, but then appends everythign but the header for the subsequent files (essentially dpyr::bind_rows in R)
     
     seq_flat = seq_ch
                 .map { row -> row.join('\t') }
@@ -164,7 +164,7 @@ workflow {
                 //.view()
 
     if (params.source == "default") {
-        gatherstats(rstat_ch, astat_ch, params.outdir, seq_flat)
+        gatherstats(rstat_ch, astat_ch, params.outdir, seq_flat) // I NEED TO FIX the line where the second column is grepped for only CE, CT, CN, or CB -  AS SP. 27 AND SP. 30 WILL NOT BE INCLUDED !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     } else {
         gatherstats(rstat_ch, astat_ch, params.raw_dir, seq_flat)
     }   
@@ -174,19 +174,19 @@ workflow {
                 .map { strain, asm_fa, species1, bam, species2 -> tuple(strain, asm_fa, species1, bam) }  // drop duplicate species2
                 .view()
     
-    blobtools(blob_ch)
+    blobtools(blob_ch)                          // REMOVE SECOND MKDIR COMMAND IN PROCESS
 
     filtasm_ch = blobtools.out.filtasm
-                .map { strain, filteredAsm, species -> tupl(strain, filt_asm, species) }
+                .map { strain, filt_asm, species -> tuple(strain, filt_asm, species) }
                 .view()
 
-    busco(filt_asm_ch)
+    busco(filtasm_ch)
 
     filt_asm_stat_ch = blobtools.out.filtAsmStat.collectFile(name: "filt_astat_out.txt", keepHeader: true, skip: 1)
     busco_out_ch = busco.out.bsco.collectFile(name: "busco_scores.tsv", keepHeader: false, skip: 1)
                     .view()
 
-    gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch)
+    gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch, seq_flat)
 
     // add a BRAKER3 process? - make a different nextflow script that runs BRAKER and BUSCO proteome
     // add a BUSCO proteome?
@@ -414,7 +414,7 @@ process gatherstats {
     grep -v "^strain" assembly_stats.txt | sort -k1,1 > body_asm.txt
     join -t \$'\t' body_asm.txt read_stats.txt > all_body.txt
     cat $seqflat > ${odir}_SP_CONTENT.txt 
-    sort -k1,1 ${odir}_SP_CONTENT.txt | grep -v "(" | awk '\$2 ~ /^(CE|CB|CT|CN)\$/' > ${odir}_sorted.sp2str.txt
+    sort -k1,1 ${odir}_SP_CONTENT.txt | grep -v "(" | awk '\$2 ~ /^(CE|CB|CT|CN)\$/' > ${odir}_sorted.sp2str.txt                  
     join -t \$'\t' all_body.txt ${odir}_sorted.sp2str.txt > ${odir}_all_body_sp.txt
     cat all_header.txt ${odir}_all_body_sp.txt > ${odir}_all_stats.txt
     """
@@ -482,7 +482,7 @@ process blobtools {
         ${species}/asm_stat/filtered/${strain}_blobDir
 
 
-    # Filtering out non-Nematoda contigs:
+    # Filtering out non-Nematoda contigs:                                                             SHOULD I INCLUDE NO-HIT CONTIGS AS WELL???
     blobtools filter \
         --param bestsumorder_phylum--Inv=Nematoda \
         --output ${species}/asm_stat/filtered/${strain}_blobDir/${strain}_nematoda_only_blobDir \
@@ -524,22 +524,25 @@ process busco {
     tuple val(strain), path(filt_asm), val(species)
 
     output:
-    path("${species}/asm_stat/filtered/${strain}/busco/${strain}.busco/${strain}.busco.stat.tsv"), emit: bsco
+    path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/${filt_asm.baseName}.busco.stat.tsv"), emit: bsco
+    // path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv")
+    // path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv")
+
 
     script:
     """
     busco -i $filt_asm -c 12 -m genome -l /vast/eande106/projects/Nicolas/WI_PacBio_genomes/annotation/elegans/busco_downloads/lineages/nematoda_odb10/ -o ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco 
 
     echo -e "strain\tbusco_completeness\tasm_path" > header.tsv
-    grep "^C:" ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/${filt_asm.baseName}.busco.txt > tmp.tsv
-    sed -i -E 's/([^[:space:]]+)[[:space:]]+C:([0-9.]+)%.*/\1\t\2/' tmp.tsv
-    paste -d '\t' tmp.tsv <(echo "${params.output}/${filt_asm}") > strain_busco.tsv
+    grep "C:" ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/short_summary.specific.nematoda_odb10.${filt_asm.baseName}.busco.txt > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv
+    awk '{ match(\$0, /C:([0-9.]+)%/, a); print a[1] }' ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv 
+    paste -d '\t' <(echo "$strain") ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv <(echo "/vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/${params.output}/${species}/assemblies/filtered/${strain}/${filt_asm.baseName}.fa") > strain_busco.tsv
     
     cat header.tsv strain_busco.tsv > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/${filt_asm.baseName}.busco.stat.tsv
     """
 }
 
-/*
+
 process gatherstatsFiltered {
 
     publishDir(
@@ -552,17 +555,30 @@ process gatherstatsFiltered {
     input:
     val(filt_asm_stat)
     val(filt_asm_busco)
+    val(seqflat)
 
     output:
-    path("")
+    path("${params.outdir}_filtered_asm_stats.txt") 
 
     script:
     """
-    cat $filt_asm_stat > assembly.txt
-    grep "^strain" assembly_stats.txt | sed 's/N50/X50/g' | sed 's/L50/N50/g' | sed 's/X50/L50/g' | awk -v OFS='\t' '{print $0, "busco", "asm_path"}> header_asm.txt
-    
-    # Left join by strain, then table will have all of the assembly stats, the busco score, and the path to the filtered assembly
+    cat $filt_asm_stat > filt_asm_stat.txt
+    cat $filt_asm_busco > busco_asmPath.txt
+    cat $seqflat > species.txt 
+    sort -k1,1 species.txt > species_sorted.txt
 
+    grep "^strain" filt_asm_stat.txt | sed 's/N50/X50/g' | sed 's/L50/N50/g' | sed 's/X50/L50/g' | awk -v OFS='\t' '{print \$0, "busco", "asm_path", "species"}' > header.txt
+    grep -v "^strain" filt_asm_stat.txt | sort -k1,1 > body_filt_asm_stats.txt
+
+    join -t \$'\t' body_filt_asm_stats.txt species_sorted.txt > body_filt_asm_stats_species.txt
+
+    while IFS=\$'\t' read -r line; do
+        strain=\$(echo "\$line" | awk '{print \$1}')
+        busco_asmPath=\$(grep -m1 -w "\$strain" busco_asmPath.txt | awk -v OFS='\t' '{print \$2,\$3})
+        echo -e "\$line\t\$busco_asmPath" >> final_body.txt
+    done < body_filt_asm_stats_species.txt
+
+    cat final_body.txt temp.txt > ${params.outdir}_filtered_asm_stats.txt
     """
 }
-*/
+
