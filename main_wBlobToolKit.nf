@@ -156,12 +156,21 @@ workflow {
     
     astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1) // keeps the header for the first file, but then appends everythign but the header for the subsequent files (essentially dpyr::bind_rows in R)
     
-    seq_flat = seq_ch
+    seq_flat = seq_ch                                                                                                           /// fix how seq_flat is created!!!!!
                 .map { row -> row.join('\t') }
                 .map { rows -> ["sp2str.txt"] + rows }
                 .collect()
                 .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
                 //.view()
+    
+    /*
+    seq_flat = seq_ch
+                .map { row -> ["sp2str.txt", row.join('\t')] }
+                .collect()
+                .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
+                */
+
+
 
     if (params.source == "default") {
         gatherstats(rstat_ch, astat_ch, params.outdir, seq_flat) // I NEED TO FIX the line where the second column is grepped for only CE, CT, CN, or CB -  AS SP. 27 AND SP. 30 WILL NOT BE INCLUDED !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -186,10 +195,9 @@ workflow {
     busco_out_ch = busco.out.bsco.collectFile(name: "busco_scores.tsv", keepHeader: false, skip: 1)
                     .view()
 
-    gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch, seq_flat)
+    gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch, seq_flat, rstat_ch)
 
-    // add a BRAKER3 process? - make a different nextflow script that runs BRAKER and BUSCO proteome
-    // add a BUSCO proteome?
+    // add a BRAKER3 process - make a different nextflow script that runs BRAKER3, creates proteomes, runs BUSCO on these proteomes, and creates proteomes that are the longest isoform for OrthoFinder
 }
 
 
@@ -556,6 +564,7 @@ process gatherstatsFiltered {
     val(filt_asm_stat)
     val(filt_asm_busco)
     val(seqflat)
+    val(rstat)
 
     output:
     path("${params.outdir}_filtered_asm_stats.txt") 
@@ -564,21 +573,28 @@ process gatherstatsFiltered {
     """
     cat $filt_asm_stat > filt_asm_stat.txt
     cat $filt_asm_busco > busco_asmPath.txt
-    cat $seqflat > species.txt 
+    cat $rstat | sort -k1,1 > read_stats.txt
+    cat $seqflat | grep -v "sp2str.txt" | awk -F'\t' 'NF && \$1 != "" {print \$0}' > species.txt 
     sort -k1,1 species.txt > species_sorted.txt
 
-    grep "^strain" filt_asm_stat.txt | sed 's/N50/X50/g' | sed 's/L50/N50/g' | sed 's/X50/L50/g' | awk -v OFS='\t' '{print \$0, "busco", "asm_path", "species"}' > header.txt
+    grep "^strain" filt_asm_stat.txt | sed 's/N50/X50/g' | sed 's/L50/N50/g' | sed 's/X50/L50/g' | sed 's/N90/X90/g' | sed 's/L90/N90/g' | sed 's/X90/L90/g' | sed 's|#||' | awk -v OFS='\t' '{print \$0, "yield", "mead_readlen", "species", "genome_busco", "asm_path"}' > header.txt
     grep -v "^strain" filt_asm_stat.txt | sort -k1,1 > body_filt_asm_stats.txt
 
-    join -t \$'\t' body_filt_asm_stats.txt species_sorted.txt > body_filt_asm_stats_species.txt
+    join -t \$'\t' body_filt_asm_stats.txt read_stats.txt > body_filt_asm_read_stats.txt
+    join -t \$'\t' body_filt_asm_read_stats.txt species_sorted.txt > body_filt_asm_stats_species.txt
 
-    while IFS=\$'\t' read -r line; do
-        strain=\$(echo "\$line" | awk '{print \$1}')
-        busco_asmPath=\$(grep -m1 -w "\$strain" busco_asmPath.txt | awk -v OFS='\t' '{print \$2,\$3})
-        echo -e "\$line\t\$busco_asmPath" >> final_body.txt
-    done < body_filt_asm_stats_species.txt
+    #while IFS=\$'\t' read -r line; do
+    #   strain=\$(echo "\$line" | awk '{print \$1}')
+    #    busco_asmPath=\$(grep -m1 -w "\$strain" busco_asmPath.txt | awk -v OFS='\t' '{print \$2,\$3}')
+    #    echo -e "\${line}\t\${busco_asmPath}" >> final_body.txt
+    #done < body_filt_asm_stats_species.txt
 
-    cat final_body.txt temp.txt > ${params.outdir}_filtered_asm_stats.txt
+    awk 'BEGIN { OFS="\t" }
+    NR==FNR { busco[\$1]=\$2"\t"\$3; next }
+    { print \$0, busco[\$1] }' busco_asmPath.txt body_filt_asm_stats_species.txt > final_body.txt
+
+
+    cat header.txt final_body.txt | awk -v OFS='\t' '{print \$23, \$1, \$3, \$5, \$16, \$9, \$10, \$13, \$14, \$17, \$18, \$19, \$21, \$22, \$24, \$25}' > ${params.outdir}_filtered_asm_stats.txt
     """
 }
 
