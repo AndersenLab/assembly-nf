@@ -129,7 +129,7 @@ workflow {
         master_keys_ch = master_join.map { it[0] }.collect().view() // Collects strain keys - prints out the name of the strains that have been sequenced previously and whose data will be merged with current run
 
         bam_nmerge = bam_ch.filter { row ->
-            def master_keys = master_keys_ch.get() // Ensures `collect()` completes before use
+            def master_keys = master_keys_ch.get() // Ensures `collect()` completes before use - this fails and returns "ERROR ~ Unknown method invocation `contains` on PoisonPill type -- Did you mean?" if there are NO matching strains in ext master to supplied raw.dir or paths in sample_sheet
             !master_keys.contains(row[0]) // Filters out matching rows (i.e, strains that have been sequenced multiple times and are in master_join)
         }
 
@@ -143,7 +143,7 @@ workflow {
     mapped_sp_bam = bam_ch_merged
                         .join(seq_ch) // adding species resolution - an inner_join so we must always use species sheets that contain species resolution for all of the strains we are working with
     
-    markdup(mapped_sp_bam)                                                       // DO WE REALLY NEED TO PUBLISH THESE FASTAS????????????????????????????????????????????????????????????????????????????????????
+    markdup(mapped_sp_bam)                                                       // DO WE REALLY NEED TO PUBLISH THESE FASTAS? I added a pattern matching for published files 
 
     rstat_ch = markdup.out.rstat.collectFile(name: "rstat_out.txt")
     
@@ -154,26 +154,24 @@ workflow {
 
     assemble(funiq_ch)
     
-    astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1) // keeps the header for the first file, but then appends everythign but the header for the subsequent files (essentially dpyr::bind_rows in R)
+    astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1)  // keeps the header for the first file, but then appends everything but the header for the subsequent files (essentially dpyr::bind_rows in R)
     
-    seq_flat = seq_ch                                                                                                           /// fix how seq_flat is created!!!!!
+    /*
+    seq_flat = seq_ch                                                                                                           
                 .map { row -> row.join('\t') }
                 .map { rows -> ["sp2str.txt"] + rows }
                 .collect()
                 .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
-                //.view()
+                //.view().  /// fix how seq_flat is created!!!!! Currently it adds the string "sp2str.tsv" many times
+    */
     
-    /*
     seq_flat = seq_ch
                 .map { row -> ["sp2str.txt", row.join('\t')] }
                 .collect()
-                .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
-                */
-
-
+                .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)        
 
     if (params.source == "default") {
-        gatherstats(rstat_ch, astat_ch, params.outdir, seq_flat) // I NEED TO FIX the line where the second column is grepped for only CE, CT, CN, or CB -  AS SP. 27 AND SP. 30 WILL NOT BE INCLUDED !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        gatherstats(rstat_ch, astat_ch, params.outdir, seq_flat) // don't grep for only CE, CN, CB, and CT
     } else {
         gatherstats(rstat_ch, astat_ch, params.raw_dir, seq_flat)
     }   
@@ -183,7 +181,7 @@ workflow {
                 .map { strain, asm_fa, species1, bam, species2 -> tuple(strain, asm_fa, species1, bam) }  // drop duplicate species2
                 .view()
     
-    blobtools(blob_ch)                          // REMOVE SECOND MKDIR COMMAND IN PROCESS
+    blobtools(blob_ch)                         
 
     filtasm_ch = blobtools.out.filtasm
                 .map { strain, filt_asm, species -> tuple(strain, filt_asm, species) }
@@ -196,8 +194,6 @@ workflow {
                     .view()
 
     gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch, seq_flat, rstat_ch)
-
-    // add a BRAKER3 process - make a different nextflow script that runs BRAKER3, creates proteomes, runs BUSCO on these proteomes, and creates proteomes that are the longest isoform for OrthoFinder
 }
 
 
@@ -298,6 +294,7 @@ process markdup {
     publishDir(
         path: "${params.output}",
         mode: 'copy',
+        pattern: "*.uniq.fasta.read_stats.txt", // This way the fasta doesn't get published
     )
 
     label 'pb_mark_duplicates'
@@ -324,7 +321,6 @@ process markdup {
     touch ${bam.baseName}.uniq.fasta
     touch ${bam.baseName}.uniq.fasta.read_stats.txt
     """
-
 }
 
 
@@ -421,8 +417,9 @@ process gatherstats {
     paste -d '\t' header_asm.txt header_read.txt > all_header.txt
     grep -v "^strain" assembly_stats.txt | sort -k1,1 > body_asm.txt
     join -t \$'\t' body_asm.txt read_stats.txt > all_body.txt
-    cat $seqflat > ${odir}_SP_CONTENT.txt 
-    sort -k1,1 ${odir}_SP_CONTENT.txt | grep -v "(" | awk '\$2 ~ /^(CE|CB|CT|CN)\$/' > ${odir}_sorted.sp2str.txt                  
+    cat $seqflat | awk -F'\t' 'NF && \$1 != "" {print \$0}' > ${odir}_SP_CONTENT.txt                      ##### FIX AFTER SEQFLAT IS FIXED
+    sort -k1,1 ${odir}_SP_CONTENT.txt > ${odir}_sorted.sp2str.txt                  
+    # sort -k1,1 ${odir}_SP_CONTENT.txt | grep -v "(" | awk '\$2 ~ /^(CE|CB|CT|CN)\$/' > ${odir}_sorted.sp2str.txt                  
     join -t \$'\t' all_body.txt ${odir}_sorted.sp2str.txt > ${odir}_all_body_sp.txt
     cat all_header.txt ${odir}_all_body_sp.txt > ${odir}_all_stats.txt
     """
@@ -449,17 +446,18 @@ process blobtools {
     output:
     tuple val(strain), path("${species}/assemblies/filtered/${strain}/${asm_fa.baseName}.filtered.fa"), val(species), emit: filtasm
     path("${species}/asm_stat/filtered/${strain}/${asm_fa.baseName}.filtered.fa.stats"), emit: filtAsmStat
+    path("${species}/asm_stat/filtered/${strain}/png/${strain}_blobDir.blob.circle.png")
+    path("${species}/asm_stat/filtered/${strain}/png/${strain}_nematoda_only_blobDir.blob.circle.png")
 
 
     script:
     """
-    mkdir -p ${species}/asm_stat/filtered/${strain}/png
     mkdir -p ${species}/assemblies/filtered/${strain}
+    mkdir -p ${species}/asm_stat/filtered/${strain}/png
 
-
-    samtools fastq -@ 36 ${bam} | gzip - > ${species}/assemblies/filtered/${strain}/${bam.baseName}.fq.gz
+    samtools fastq -@ 36 ${bam} | gzip - > hifi_reads.fq.gz
     
-    minimap2 -ax map-hifi ${asm_fa} ${species}/assemblies/filtered/${strain}/${bam.baseName}.fq.gz | samtools sort -@ 36 -o ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam
+    minimap2 -ax map-hifi ${asm_fa} hifi_reads.fq.gz | samtools sort -@ 36 -o ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam
 
     samtools index -c ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam
 
@@ -567,14 +565,14 @@ process gatherstatsFiltered {
     val(rstat)
 
     output:
-    path("${params.outdir}_filtered_asm_stats.txt") 
+    path("${params.outdir}_filtered_asm_stats.txt"), emit: fstats
 
     script:
     """
     cat $filt_asm_stat > filt_asm_stat.txt
     cat $filt_asm_busco > busco_asmPath.txt
     cat $rstat | sort -k1,1 > read_stats.txt
-    cat $seqflat | grep -v "sp2str.txt" | awk -F'\t' 'NF && \$1 != "" {print \$0}' > species.txt 
+    cat $seqflat | grep -v "sp2str.txt" | awk -F'\t' 'NF && \$1 != "" {print \$0}' > species.txt    ###### FIX AFTER THE SEQFLAT FILE IS FIXED
     sort -k1,1 species.txt > species_sorted.txt
 
     grep "^strain" filt_asm_stat.txt | sed 's/N50/X50/g' | sed 's/L50/N50/g' | sed 's/X50/L50/g' | sed 's/N90/X90/g' | sed 's/L90/N90/g' | sed 's/X90/L90/g' | sed 's|#||' | awk -v OFS='\t' '{print \$0, "yield", "mead_readlen", "species", "genome_busco", "asm_path"}' > header.txt
@@ -593,8 +591,7 @@ process gatherstatsFiltered {
     NR==FNR { busco[\$1]=\$2"\t"\$3; next }
     { print \$0, busco[\$1] }' busco_asmPath.txt body_filt_asm_stats_species.txt > final_body.txt
 
-
-    cat header.txt final_body.txt | awk -v OFS='\t' '{print \$23, \$1, \$3, \$5, \$16, \$9, \$10, \$13, \$14, \$17, \$18, \$19, \$21, \$22, \$24, \$25}' > ${params.outdir}_filtered_asm_stats.txt
+    cat header.txt final_body.txt | awk -v OFS='\t' '{print \$23, \$1, \$2, \$3, \$4, \$5, \$6, \$15, \$16, \$7, \$8, \$9, \$10, \$11, \$12, \$13, \$14, \$17, \$18, \$19, \$21, \$22, \$24, \$25}' > ${params.outdir}_filtered_asm_stats.txt
+    # cat header.txt final_body.txt | awk -v OFS='\t' '{print \$23, \$1, \$3, \$5, \$16, \$9, \$10, \$13, \$14, \$17, \$18, \$19, \$21, \$22, \$24, \$25}' > ${params.outdir}_filtered_asm_stats.txt
     """
 }
-
