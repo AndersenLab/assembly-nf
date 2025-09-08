@@ -19,9 +19,9 @@ To filter out contigs that might be constructed from non-Nematoda DNA, use param
 When running in Rockfish, use -profile rockfish and it will use the conf/rockfish.config configuration file. Use flag "-resume" to resume an analysis and retrieve any cached data.
 
 ## Examples
-### Running in source umd 
+### Running in --source umd 
 
-### Running in source default
+### Running in --source default
 
 ### Running in --source default with an --ext_master sheet proided to merge bam files of the same strain, and then running blobtools on the assemblies
 
