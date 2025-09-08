@@ -1,5 +1,5 @@
 # assembly-nf
-Nextflow pipeline for hifiasm de novo assembly and sequencing quality control.
+Nextflow pipeline for hifiasm *de novo* assembly and sequencing quality control.
 
 By default, the pipeline will assemble genomes in "inbred" mode for hifiasm
 
@@ -17,3 +17,12 @@ This pipeline can also be run in --source default with a --sample_sheet that con
 To filter out contigs that might be constructed from non-Nematoda DNA, use parameter "--blobtools" set to "yes" when running with '--type reads'. If the user desires to only run blobtools on already assembled contigous genomes in the FASTA format, the user can specify '--type assembly' and provide the absolute path to a TSV file with header: strain, assembly.fa, species, file.bam. The absolute paths must be provided for assembly.fa and file.bam.  
 
 When running in Rockfish, use -profile rockfish and it will use the conf/rockfish.config configuration file. Use flag "-resume" to resume an analysis and retrieve any cached data.
+
+## Examples
+### Running in source umd 
+
+### Running in source default
+
+### Running in --source default with an --ext_master sheet proided to merge bam files of the same strain, and then running blobtools on the assemblies
+
+### Running blobtools on already assembled genomes
