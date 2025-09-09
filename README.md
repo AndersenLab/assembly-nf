@@ -13,8 +13,8 @@ If running with --ext_master, and using the master sheet for merging and re-asse
 
 This pipeline can also be run in --source default with a --sample_sheet that contains bams from multiple runs of the same strain, and merging of sequencing data for the same strain will still occur as the pipeline checks for multiple entries of the same strain.
 
-## --type & --blobtools & --assembly_sheet 
-To filter out contigs that might be constructed from non-Nematoda DNA, use parameter "--blobtools" set to "yes" when running with '--type reads'. If the user desires to only run blobtools on already assembled contigous genomes in the FASTA format, the user can specify '--type assembly' and provide the absolute path to a TSV file with header: strain, assembly.fa, species, file.bam. The absolute paths must be provided for assembly.fa and file.bam.  
+## --type & --blobtools 
+To filter out contigs that might be constructed from non-Nematoda DNA, use parameter "--blobtools" set to "yes" when running with '--type reads'. If the user desires to only run blobtools on already assembled contigous genomes in the FASTA format, the user can specify '--type assembly' and provide the absolute path to a TSV file with header: strain, asm_fa, species, bam, r_stats. The absolute paths must be provided for asm_fa, bam, and r_stats, and the TSV should be supplied to parameters --sample_sheet.  
 
 When running in Rockfish, use -profile rockfish and it will use the conf/rockfish.config configuration file. Use flag "-resume" to resume an analysis and retrieve any cached data.
 
