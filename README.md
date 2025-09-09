@@ -19,10 +19,14 @@ To filter out contigs that might be constructed from non-Nematoda DNA, use param
 When running in Rockfish, use -profile rockfish and it will use the conf/rockfish.config configuration file. Use flag "-resume" to resume an analysis and retrieve any cached data.
 
 ## Examples
-### Running in --source umd 
+### Running in --source umd with blobtools
+nextflow run main_wBlobToolKit.nf --source default --type reads --sample_sheet --raw_dir 2025_newData --blobtools yes -profile rockfish
 
-### Running in --source default
+### Running in --source default with no blobtools
+nextflow run main_wBlobToolKit.nf --source default --type reads --sample_sheet /<absolutePath>/strain_bamPaths.tsv --outdir 2025_assemblies -profile rockfish
 
 ### Running in --source default with an --ext_master sheet proided to merge bam files of the same strain, and then running blobtools on the assemblies
+nextflow run main_wBlobToolKit.nf --source default --type reads --sample_sheet /<absolutePath>/strain_bamPaths.tsv --outdir blobTest --blobtools yes -profile rockfish
 
 ### Running blobtools on already assembled genomes
+nextflow run main_wBlobToolKit.nf --source default --type assembly --sample_sheet /<absolutePath>/tinymerged_test.tsv --outdir typeAssemblyTest -profile rockfish
