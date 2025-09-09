@@ -26,7 +26,7 @@ When running in Rockfish, use -profile rockfish and it will use the conf/rockfis
 nextflow run main_wBlobToolKit.nf --source default --type reads --sample_sheet /<absolutePath>/strain_bamPaths.tsv --outdir 2025_assemblies -profile rockfish
 
 ### Running in --source default with an --ext_master sheet proided to merge bam files of the same strain, and then running blobtools on the assemblies
-nextflow run main_wBlobToolKit.nf --source default --type reads --sample_sheet /<absolutePath>/strain_bamPaths.tsv --outdir blobTest --blobtools yes -profile rockfish
+```nextflow run main_wBlobToolKit.nf --source default --type reads --sample_sheet /<absolutePath>/strain_bamPaths.tsv --outdir blobTest --blobtools yes -profile rockfish```
 
 ### Running blobtools on already assembled genomes
-nextflow run main_wBlobToolKit.nf --source default --type assembly --sample_sheet /<absolutePath>/tinymerged_test.tsv --outdir typeAssemblyTest -profile rockfish
+```nextflow run main_wBlobToolKit.nf --source default --type assembly --sample_sheet /<absolutePath>/tinymerged_test.tsv --outdir typeAssemblyTest -profile rockfish```
