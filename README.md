@@ -20,7 +20,7 @@ When running in Rockfish, use -profile rockfish and it will use the conf/rockfis
 
 ## Examples
 ### Running in --source umd with blobtools
-nextflow run main_wBlobToolKit.nf --source default --type reads --sample_sheet --raw_dir 2025_newData --blobtools yes -profile rockfish
+```nextflow run main_wBlobToolKit.nf --source default --type reads --sample_sheet --raw_dir 2025_newData --blobtools yes -profile rockfish```
 
 ### Running in --source default with no blobtools
 nextflow run main_wBlobToolKit.nf --source default --type reads --sample_sheet /<absolutePath>/strain_bamPaths.tsv --outdir 2025_assemblies -profile rockfish
