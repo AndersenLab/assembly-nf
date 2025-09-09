@@ -197,28 +197,44 @@ workflow {
                     .collect()
                     .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
                     
-        
-        // blob_ch = Channel.fromPath(params.assembly_sheet, checkIfExists: true)
-        //         .ifEmpty { exit 1, "Provided --assembly_sheet not found. Please provide the absolute path to a TSV with header strain, assembly.fa, species, bam, r_stats" }
-        //         .splitCsv(sep: "\t",header: true)
-        //         .map { row -> [row.strain, row.asm_fa, row.species, row.bam, row.rstat] -> tuple(strain, asm_fa, species, bam) }
-        blob_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-            .ifEmpty { exit 1, "Provided --sample_sheet not found. Please provide the absolute path to a TSV with header strain, asm_fa, species, bam, r_stats" }
+        bam_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+            .ifEmpty { exit 1, "Provided --sample_sheet not found. Please provide the absolute path to a TSV with header strain, asm_fa, species, bam. If working with an assembly that was created from merging bams, please provide multiple entries for the same assembly - one entry for each bam." }
             .splitCsv(sep: "\t",header: true)
-            .map { row -> tuple(row.strain, row.asm_fa, row.species, row.bam) }
-            .view()
+            .map { row -> [row.strain, row.bam] } // there will be repeats of strains for those that need bams merged for assessing coverage with blobtools
+            // .view()
     
-        // r_stat_ch = Channel.fromPath(params.assembly_sheet, checkIfExists: true)
-        //         .ifEmpty { exit 1, "Provided --assembly_sheet not found. Please provide the absolute path to a TSV with header strain, assembly.fa, species, bam, r_stats" }
-        //         .splitCsv(sep: "\t",header: true)
-        //         .map { row -> [row.strain, row.asm_fa, row.species, row.bam, row.rstat] -> file(r_stats)) }
-        r_stat_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-            .ifEmpty { exit 1, "Provided --sample_sheet not found. Please provide the absolute path to a TSV with header strain, asm_fa, species, bam, r_stats" }
-            .splitCsv(sep: "\t",header: true)
-            .map { row -> file(row.r_stats) } 
-            .view()
+        // Have merge_bam execute for strains and assemblies that have multiple bams - them run markdup to create rstat, then 
+        grouped_bam = bam_ch
+                .groupTuple() // like group_by in dplyr
+                .filter { row -> row[1].size() > 1 }
+            
+        single_ch = bam_ch
+                .groupTuple()
+                .filter { row -> row[1].size() == 1 }
+                .map { row -> row[1] = row[1].first()
+                    return row }  
 
-        blobtools(blob_ch)                         
+        merged_bams = merge_bam(grouped_bam)
+
+        merg_bam_ch = merged_bams
+            .mix(single_ch)
+            .join(seq_ch)
+            
+        markdup(merg_bam_ch)                                                 
+
+        r_stat_ch = markdup.out.rstat.collectFile(name: "rstat_out.txt")
+        
+        blob_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+            .splitCsv(sep: "\t",header: true)
+            .map { row -> tuple(row.strain, row.asm_fa, row.species) }
+
+        // Need to merge blob_ch and merg_bam_ch to get a final tuple of strain, asm_fa, species, (potentially merged) bam
+        final_blob_ch = blob_ch
+                        .join(merg_bam_ch)
+                        .map { strain, asm_fa, species1, bam, species2 -> tuple(strain, asm_fa, species1, bam) }
+                        // .view()
+    
+        blobtools(final_blob_ch)                         
 
         filtasm_ch = blobtools.out.filtasm
                 .map { strain, filt_asm, species -> tuple(strain, filt_asm, species) }
@@ -228,13 +244,12 @@ workflow {
 
         filt_asm_stat_ch = blobtools.out.filtAsmStat.collectFile(name: "filt_astat_out.txt", keepHeader: true, skip: 1)
         busco_out_ch = busco.out.bsco.collectFile(name: "busco_scores.tsv", keepHeader: false, skip: 1)
-                    .view()
 
         gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch, seq_flat, r_stat_ch)
 
     } else {
         println """
-        Please provide an argument 'reads' or 'assembly' for parameter --type. If running in mode '--type reads', please provide the argument 'yes' to the parameter --blobtools to have non-Nematoda contigs filtered out after assembly
+        Please provide an argument 'reads' or 'assembly' for parameter --type. If running in mode '--type reads', please provide the argument 'yes' to the parameter --blobtools to have non-Nematoda contigs filtered out after assembly. If running with '--type assembly', do not provide parameter --blobtools.
         """
     }
 
@@ -532,9 +547,9 @@ process blobtools {
     mkdir -p ${species}/assemblies/filtered/${strain}
     mkdir -p ${species}/asm_stat/filtered/${strain}/png
 
-    samtools fastq -@ 36 ${bam} | gzip - > hifi_reads.fq.gz
+    samtools fastq -@ ${task.cpus} ${bam} | gzip - > hifi_reads.fq.gz
     
-    minimap2 -ax map-hifi ${asm_fa} hifi_reads.fq.gz | samtools sort -@ 36 -o ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam
+    minimap2 -ax map-hifi ${asm_fa} hifi_reads.fq.gz | samtools sort -@ ${task.cpus} -o ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam
 
     samtools index -c ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam
 
@@ -552,7 +567,7 @@ process blobtools {
         -max_target_seqs 3 \
         -max_hsps 1 \
         -evalue 1e-10 \
-        -num_threads 36 \
+        -num_threads ${task.cpus} \
         -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out
         # adjust evalue cutoff??? Increase/decrease number of returned matches?
 
