@@ -8,6 +8,7 @@ nextflow.enable.dsl=2
 date = new Date().format('yyyyMMdd')
 log.info("Source: ${params.source}")
 
+
 if (params.debug) {
     println """
     *** Using debug mode ***
@@ -45,6 +46,20 @@ if (params.debug) {
     }
 }
 
+if (params.type == "reads") {
+    println """
+    Supplied --type is 'reads', de novo assembly will be executed.
+    """
+} else if (params.type == 'assembly') {
+    println """
+    Supplied --type is 'assembly', blobtools will be executed on provided assemblies.
+    """
+} else {
+    println """
+    Please specify a --type 'reads' or 'assembly'.
+    """
+}
+
 def log_summary() {
     // Corrected log summary function to print information instead of recursive call
     log.info("Workflow summary: \n" + 
@@ -74,7 +89,6 @@ workflow {
     ])
     // NEED TO ADD A SHEET THAT CONTAINS SP27 AND SP30
 
-
     seq_ch = get_seqrun(seqrun_files)                                           
             .splitCsv(sep: "\t",header: true)
             .map {row -> [row.sample, row.species] }
@@ -82,119 +96,181 @@ workflow {
             .flatten()
             .buffer(size: 2)
 
+    if (params.type == "reads") {  // for running creating asemblies from reads, and not filtering blobtools
     // Call the gensheet process and store the result in a variable
-    if (params.source == "umd") {
+        if (params.source == "umd") {
 
-        input_dir = file(params.pbdata)
-        file_list = gensheet(input_dir,params.data_path)
-    
-        bam_ch = gensheet.out.bam
-            .splitCsv(sep: "\t",header: true)
-	    .map { row -> [row.strain, row.bam_path] }
-
-    } else {
-          
-         bam_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-            .ifEmpty { exit 1, "sample sheet not found" }
-            .splitCsv(sep: "\t",header: true)
-            .map { row -> [row.strain, row.bam_path] }
-    }
-    
-    if (params.ext_master == null) {
-        grouped_bam = bam_ch
-            .groupTuple()
-            .filter { row -> row[1].size() > 1 }
+            input_dir = file(params.pbdata)
+            file_list = gensheet(input_dir,params.data_path)
         
-        single_ch = bam_ch
-                .groupTuple()
-                .filter { row -> row[1].size() == 1 }
-                .map { row -> row[1] = row[1].first()
-                              return row }  
-
-        merged_bams = merge_bam(grouped_bam)
-
-        bam_ch_merged = merged_bams
-            .mix(single_ch)
-
-    } else { 
-        master_ch = Channel.fromPath(params.ext_master, checkIfExists: true)
-	    .splitCsv(sep: "\t",header: true)
+            bam_ch = gensheet.out.bam
+                .splitCsv(sep: "\t",header: true)
             .map { row -> [row.strain, row.bam_path] }
-            
-        master_join = master_ch
-            .groupTuple() 
-            .join(bam_ch) // this is an inner join - so if there is not a strain to join by, then it is dropped - so this only contains strains that have been previously sequenced
-	    .map { row -> [row[0], row[1] + row[2]] } 
- 
-        master_keys_ch = master_join.map { it[0] }.collect().view() // Collects strain keys - prints out the name of the strains that have been sequenced previously and whose data will be merged with current run
 
-        bam_nmerge = bam_ch.filter { row ->
-            def master_keys = master_keys_ch.get() // Ensures `collect()` completes before use - this fails and returns "ERROR ~ Unknown method invocation `contains` on PoisonPill type -- Did you mean?" if there are NO matching strains in ext master to supplied raw.dir or paths in sample_sheet
-            !master_keys.contains(row[0]) // Filters out matching rows (i.e, strains that have been sequenced multiple times and are in master_join)
+        } else {
+            
+            bam_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+                .ifEmpty { exit 1, "sample sheet not found" }
+                .splitCsv(sep: "\t",header: true)
+                .map { row -> [row.strain, row.bam_path] }
+        }
+        
+        if (params.ext_master == null) {
+            grouped_bam = bam_ch
+                .groupTuple()
+                .filter { row -> row[1].size() > 1 }
+            
+            single_ch = bam_ch
+                    .groupTuple()
+                    .filter { row -> row[1].size() == 1 }
+                    .map { row -> row[1] = row[1].first()
+                                return row }  
+
+            merged_bams = merge_bam(grouped_bam)
+
+            bam_ch_merged = merged_bams
+                .mix(single_ch)
+
+        } else { 
+            master_ch = Channel.fromPath(params.ext_master, checkIfExists: true)
+            .splitCsv(sep: "\t",header: true)
+                .map { row -> [row.strain, row.bam_path] }
+                
+            master_join = master_ch
+                .groupTuple() 
+                .join(bam_ch) // this is an inner join - so if there is not a strain to join by, then it is dropped - so this only contains strains that have been previously sequenced
+            .map { row -> [row[0], row[1] + row[2]] } 
+    
+            master_keys_ch = master_join.map { it[0] }.collect().view() // Collects strain keys - prints out the name of the strains that have been sequenced previously and whose data will be merged with current run
+
+            bam_nmerge = bam_ch.filter { row ->
+                def master_keys = master_keys_ch.get() // Ensures `collect()` completes before use - this fails and returns "ERROR ~ Unknown method invocation `contains` on PoisonPill type -- Did you mean?" if there are NO matching strains in ext master to supplied raw.dir or paths in sample_sheet
+                !master_keys.contains(row[0]) // Filters out matching rows (i.e, strains that have been sequenced multiple times and are in master_join)
+            }
+
+            merged_bams = merge_bam(master_join)
+        
+            bam_ch_merged = merged_bams.merged
+                .mix(bam_nmerge) // .mix is like dplyr::bind_rows - binds together the table of strain with bams (some merged, some not merged))
+        }
+        
+    
+        mapped_sp_bam = bam_ch_merged
+                            .join(seq_ch) // adding species resolution - an inner_join so we must always use species sheets that contain species resolution for all of the strains we are working with
+        
+        markdup(mapped_sp_bam)                                                       // DO WE REALLY NEED TO PUBLISH THESE FASTAS? I added a pattern matching for published files 
+
+        rstat_ch = markdup.out.rstat.collectFile(name: "rstat_out.txt")
+        
+        fastafilt(markdup.out.uniq)
+
+        funiq_ch = fastafilt.out.funiq
+                    .filter { it[1].size() > 0 }
+
+        assemble(funiq_ch)
+        
+        astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1)  // keeps the header for the first file, but then appends everything but the header for the subsequent files (essentially dpyr::bind_rows in R)
+    
+        /*
+        seq_flat = seq_ch                                                                                                           
+                    .map { row -> row.join('\t') }
+                    .map { rows -> ["sp2str.txt"] + rows }
+                    .collect()
+                    .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
+                    //.view().  /// fix how seq_flat is created!!!!! Currently it adds the string "sp2str.tsv" many times
+        */
+        seq_flat = seq_ch
+                    .map { row -> ["sp2str.txt", row.join('\t')] }
+                    .collect()
+                    .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)        
+
+        if (params.source == "default") {
+            gatherstats(rstat_ch, astat_ch, params.outdir, seq_flat) // don't grep for only CE, CN, CB, and CT
+        } else {
+            gatherstats(rstat_ch, astat_ch, params.raw_dir, seq_flat)
         }
 
-        merged_bams = merge_bam(master_join)
+    } else if (params.type == "assembly" && params.blobtools == null) {   
+        
+        seq_flat = seq_ch
+                    .map { row -> ["sp2str.txt", row.join('\t')] }
+                    .collect()
+                    .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
+                    
+        
+        // blob_ch = Channel.fromPath(params.assembly_sheet, checkIfExists: true)
+        //         .ifEmpty { exit 1, "Provided --assembly_sheet not found. Please provide the absolute path to a TSV with header strain, assembly.fa, species, bam, r_stats" }
+        //         .splitCsv(sep: "\t",header: true)
+        //         .map { row -> [row.strain, row.asm_fa, row.species, row.bam, row.rstat] -> tuple(strain, asm_fa, species, bam) }
+        blob_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+            .ifEmpty { exit 1, "Provided --sample_sheet not found. Please provide the absolute path to a TSV with header strain, asm_fa, species, bam, r_stats" }
+            .splitCsv(sep: "\t",header: true)
+            .map { row -> tuple(row.strain, row.asm_fa, row.species, row.bam) }
+            .view()
     
-        bam_ch_merged = merged_bams.merged
-            .mix(bam_nmerge) // .mix is like dplyr::bind_rows - binds together the table of strain with bams (some merged, some not merged))
-    }
-    
-   
-    mapped_sp_bam = bam_ch_merged
-                        .join(seq_ch) // adding species resolution - an inner_join so we must always use species sheets that contain species resolution for all of the strains we are working with
-    
-    markdup(mapped_sp_bam)                                                       // DO WE REALLY NEED TO PUBLISH THESE FASTAS? I added a pattern matching for published files 
+        // r_stat_ch = Channel.fromPath(params.assembly_sheet, checkIfExists: true)
+        //         .ifEmpty { exit 1, "Provided --assembly_sheet not found. Please provide the absolute path to a TSV with header strain, assembly.fa, species, bam, r_stats" }
+        //         .splitCsv(sep: "\t",header: true)
+        //         .map { row -> [row.strain, row.asm_fa, row.species, row.bam, row.rstat] -> file(r_stats)) }
+        r_stat_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+            .ifEmpty { exit 1, "Provided --sample_sheet not found. Please provide the absolute path to a TSV with header strain, asm_fa, species, bam, r_stats" }
+            .splitCsv(sep: "\t",header: true)
+            .map { row -> file(row.r_stats) } 
+            .view()
 
-    rstat_ch = markdup.out.rstat.collectFile(name: "rstat_out.txt")
-    
-    fastafilt(markdup.out.uniq)
+        blobtools(blob_ch)                         
 
-    funiq_ch = fastafilt.out.funiq
-                   .filter { it[1].size() > 0 }
+        filtasm_ch = blobtools.out.filtasm
+                .map { strain, filt_asm, species -> tuple(strain, filt_asm, species) }
+                .view()
 
-    assemble(funiq_ch)
-    
-    astat_ch = assemble.out.astat.collectFile(name: "astat_out.txt", keepHeader: true, skip: 1)  // keeps the header for the first file, but then appends everything but the header for the subsequent files (essentially dpyr::bind_rows in R)
-    
-    /*
-    seq_flat = seq_ch                                                                                                           
-                .map { row -> row.join('\t') }
-                .map { rows -> ["sp2str.txt"] + rows }
-                .collect()
-                .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
-                //.view().  /// fix how seq_flat is created!!!!! Currently it adds the string "sp2str.tsv" many times
-    */
-    
-    seq_flat = seq_ch
-                .map { row -> ["sp2str.txt", row.join('\t')] }
-                .collect()
-                .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)        
+        busco(filtasm_ch)
 
-    if (params.source == "default") {
-        gatherstats(rstat_ch, astat_ch, params.outdir, seq_flat) // don't grep for only CE, CN, CB, and CT
+        filt_asm_stat_ch = blobtools.out.filtAsmStat.collectFile(name: "filt_astat_out.txt", keepHeader: true, skip: 1)
+        busco_out_ch = busco.out.bsco.collectFile(name: "busco_scores.tsv", keepHeader: false, skip: 1)
+                    .view()
+
+        gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch, seq_flat, r_stat_ch)
+
     } else {
-        gatherstats(rstat_ch, astat_ch, params.raw_dir, seq_flat)
-    }   
+        println """
+        Please provide an argument 'reads' or 'assembly' for parameter --type. If running in mode '--type reads', please provide the argument 'yes' to the parameter --blobtools to have non-Nematoda contigs filtered out after assembly
+        """
+    }
 
-    blob_ch = assemble.out.asm
+    if (params.blobtools == "yes") {       // This would also need params.type to be equal to 'reads'
+
+        blob_ch = assemble.out.asm
                 .join(mapped_sp_bam)          // join by strain
                 .map { strain, asm_fa, species1, bam, species2 -> tuple(strain, asm_fa, species1, bam) }  // drop duplicate species2
                 .view()
     
-    blobtools(blob_ch)                         
+        blobtools(blob_ch)                         
 
-    filtasm_ch = blobtools.out.filtasm
+        filtasm_ch = blobtools.out.filtasm
                 .map { strain, filt_asm, species -> tuple(strain, filt_asm, species) }
                 .view()
 
-    busco(filtasm_ch)
+        busco(filtasm_ch)
 
-    filt_asm_stat_ch = blobtools.out.filtAsmStat.collectFile(name: "filt_astat_out.txt", keepHeader: true, skip: 1)
-    busco_out_ch = busco.out.bsco.collectFile(name: "busco_scores.tsv", keepHeader: false, skip: 1)
+        filt_asm_stat_ch = blobtools.out.filtAsmStat.collectFile(name: "filt_astat_out.txt", keepHeader: true, skip: 1)
+        busco_out_ch = busco.out.bsco.collectFile(name: "busco_scores.tsv", keepHeader: false, skip: 1)
                     .view()
 
-    gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch, seq_flat, rstat_ch)
+        gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch, seq_flat, rstat_ch)
+
+    } else if (params.type == 'assembly' && blobtools == 'yes') {
+        println """
+        The parameter --blobtools is only used in conjunction with '--type reads'. If running '--type assembly', blobtools is automatically executed.
+        """
+    }else {
+        println """
+        The parameter --blobtools is equal to null. If being run in '--type assembly' mode, then this is fine. Otherwise, this indicates that when run in mode '--type reads' that the final assemblies will not have blobtools executed to filter out non-Nematoda contigs.
+        """
+    }
 }
+
+
 
 
 process get_seqrun {
@@ -294,7 +370,7 @@ process markdup {
     publishDir(
         path: "${params.output}",
         mode: 'copy',
-        pattern: "*.uniq.fasta.read_stats.txt", // This way the fasta doesn't get published
+        pattern: "**/*.uniq.fasta.read_stats.txt", // This way the fasta doesn't get published and only the stats. **/ means any number of subdirectories
     )
 
     label 'pb_mark_duplicates'
@@ -448,6 +524,7 @@ process blobtools {
     path("${species}/asm_stat/filtered/${strain}/${asm_fa.baseName}.filtered.fa.stats"), emit: filtAsmStat
     path("${species}/asm_stat/filtered/${strain}/png/${strain}_blobDir.blob.circle.png")
     path("${species}/asm_stat/filtered/${strain}/png/${strain}_nematoda_only_blobDir.blob.circle.png")
+    path("${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out")
 
 
     script:
@@ -472,11 +549,12 @@ process blobtools {
     blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
         -query ${asm_fa} \
         -outfmt "6 qseqid staxids bitscore std" \
-        -max_target_seqs 5 \
+        -max_target_seqs 3 \
         -max_hsps 1 \
-        -evalue 1e-25 \
+        -evalue 1e-10 \
         -num_threads 36 \
         -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out
+        # adjust evalue cutoff??? Increase/decrease number of returned matches?
 
 
     # Adding coverage and BLAST hits to BlobDir:
@@ -492,6 +570,13 @@ process blobtools {
     blobtools filter \
         --param bestsumorder_phylum--Inv=Nematoda \
         --output ${species}/asm_stat/filtered/${strain}_blobDir/${strain}_nematoda_only_blobDir \
+        --fasta ${asm_fa} \
+        ${species}/asm_stat/filtered/${strain}_blobDir
+
+    ###### CREATE A FASTA THAT HAS CONTIGS OF NO HIT ?????
+    blobtools filter \
+        --param bestsumorder_phylum--Inv=no-hit \
+        --output ${species}/asm_stat/filtered/${strain}_blobDir/${strain}_noHit_blobDir \
         --fasta ${asm_fa} \
         ${species}/asm_stat/filtered/${strain}_blobDir
 
@@ -511,6 +596,7 @@ process blobtools {
     
 
     cp ${asm_fa.baseName}.filtered.fa  ${species}/assemblies/filtered/${strain}/${asm_fa.baseName}.filtered.fa
+    ## what would name of no-hit filtered.fa be????
 
     stats.sh -format=6 -in=${species}/assemblies/filtered/${strain}/${asm_fa.baseName}.filtered.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > ${species}/asm_stat/filtered/${strain}/${asm_fa.baseName}.filtered.fa.stats
     """
