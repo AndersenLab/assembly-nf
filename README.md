@@ -1,3 +1,4 @@
+Nextflow pipeline for PacBio sequencing quality control, *de novo* genome assembly, and de-contamination of non-*Nematoda* DNA.
 ```
                               _     _                         __ 
                              | |   | |                       / _|
@@ -8,10 +9,7 @@
                                        __/ |                     
                                       |___/                      
 ```
-
-Nextflow pipeline for hifiasm *de novo* assembly and sequencing quality control.
-
-By default, the pipeline will assemble genomes in "inbred" mode for hifiasm
+By default, the pipeline will assemble genomes in "inbred" mode (i.e., will not purge duplicate haplotigs) for hifiasm.
 
 ## --source
 If running with --source umd, then provide the folder in /vast/eande106/data/transfer/raw where sequencing data has been deposited (e.g. --raw_dir 20250314_PacBio). When running in --source umd, the output directory will be set to "${raw_dir}-assembly" even if you specify an --outdir.
