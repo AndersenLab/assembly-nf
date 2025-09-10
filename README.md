@@ -1,5 +1,5 @@
 # assembly-nf
-
+```
                               _     _                         __ 
                              | |   | |                       / _|
   __ _ ___ ___  ___ _ __ ___ | |__ | |_   _            _ __ | |_ 
@@ -8,7 +8,7 @@
  \__,_|___/___/\___|_| |_| |_|_.__/|_|\__, |          |_| |_|_|  
                                        __/ |                     
                                       |___/                      
-
+```
 
 Nextflow pipeline for hifiasm *de novo* assembly and sequencing quality control.
 
