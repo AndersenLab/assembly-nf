@@ -588,12 +588,12 @@ process blobtools {
         --fasta ${asm_fa} \
         ${species}/asm_stat/filtered/${strain}_blobDir
 
-    ###### CREATE A FASTA THAT HAS CONTIGS OF NO HIT ?????
-    blobtools filter \
-        --param bestsumorder_phylum--Inv=no-hit \
-        --output ${species}/asm_stat/filtered/${strain}_blobDir/${strain}_noHit_blobDir \
-        --fasta ${asm_fa} \
-        ${species}/asm_stat/filtered/${strain}_blobDir
+    // ###### CREATE A FASTA THAT HAS CONTIGS OF NO HIT ????? this only works if contigs HAVE no-hit annotated contigs
+    // blobtools filter \
+    //     --param bestsumorder_phylum--Inv=no-hit \
+    //     --output ${species}/asm_stat/filtered/${strain}_blobDir/${strain}_noHit_blobDir \
+    //     --fasta ${asm_fa} \
+    //     ${species}/asm_stat/filtered/${strain}_blobDir
 
 
     # Creating plots before and after filtering:
@@ -611,7 +611,6 @@ process blobtools {
     
 
     cp ${asm_fa.baseName}.filtered.fa  ${species}/assemblies/filtered/${strain}/${asm_fa.baseName}.filtered.fa
-    ## what would name of no-hit filtered.fa be????
 
     stats.sh -format=6 -in=${species}/assemblies/filtered/${strain}/${asm_fa.baseName}.filtered.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > ${species}/asm_stat/filtered/${strain}/${asm_fa.baseName}.filtered.fa.stats
     """
