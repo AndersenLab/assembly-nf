@@ -8,6 +8,17 @@ nextflow.enable.dsl=2
 date = new Date().format('yyyyMMdd')
 log.info("Source: ${params.source}")
 
+// println '''
+//                               _     _                         __ 
+//                              | |   | |                       / _|
+//   __ _ ___ ___  ___ _ __ ___ | |__ | |_   _            _ __ | |_ 
+//  / _` / __/ __|/ _ \ '_ ` _ \| '_ \| | | | |  ______  | '_ \|  _|
+// | (_| \__ \__ \  __/ | | | | | |_) | | |_| | |______| | | | | |  
+//  \__,_|___/___/\___|_| |_| |_|_.__/|_|\__, |          |_| |_|_|  
+//                                        __/ |                     
+//                                       |___/                      
+// '''
+
 
 if (params.debug) {
     println """
@@ -198,9 +209,9 @@ workflow {
                     .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
                     
         bam_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-            .ifEmpty { exit 1, "Provided --sample_sheet not found. Please provide the absolute path to a TSV with header strain, asm_fa, species, bam. If working with an assembly that was created from merging bams, please provide multiple entries for the same assembly - one entry for each bam." }
+            .ifEmpty { exit 1, "Provided --sample_sheet not found. Please provide the absolute path to a TSV with header strain, asm_fa, species, bam_path. If working with an assembly that was created from merging bams, please provide multiple entries for the same assembly - one entry for each bam." }
             .splitCsv(sep: "\t",header: true)
-            .map { row -> [row.strain, row.bam] } // there will be repeats of strains for those that need bams merged for assessing coverage with blobtools
+            .map { row -> [row.strain, row.bam_path] } // there will be repeats of strains for those that need bams merged for assessing coverage with blobtools
             // .view()
     
         // Have merge_bam execute for strains and assemblies that have multiple bams - them run markdup to create rstat, then 
@@ -559,7 +570,6 @@ process blobtools {
         --fasta ${asm_fa} \
         ${species}/asm_stat/filtered/${strain}_blobDir
 
-
     # BLASTing assembly contigs:
     blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
         -query ${asm_fa} \
@@ -581,19 +591,12 @@ process blobtools {
         ${species}/asm_stat/filtered/${strain}_blobDir
 
 
-    # Filtering out non-Nematoda contigs:                                                             SHOULD I INCLUDE NO-HIT CONTIGS AS WELL???
+    # Filtering out non-Nematoda contigs:                                                            
     blobtools filter \
         --param bestsumorder_phylum--Inv=Nematoda \
         --output ${species}/asm_stat/filtered/${strain}_blobDir/${strain}_nematoda_only_blobDir \
         --fasta ${asm_fa} \
         ${species}/asm_stat/filtered/${strain}_blobDir
-
-    // ###### CREATE A FASTA THAT HAS CONTIGS OF NO HIT ????? this only works if contigs HAVE no-hit annotated contigs
-    // blobtools filter \
-    //     --param bestsumorder_phylum--Inv=no-hit \
-    //     --output ${species}/asm_stat/filtered/${strain}_blobDir/${strain}_noHit_blobDir \
-    //     --fasta ${asm_fa} \
-    //     ${species}/asm_stat/filtered/${strain}_blobDir
 
 
     # Creating plots before and after filtering:
