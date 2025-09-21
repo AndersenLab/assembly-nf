@@ -91,14 +91,14 @@ def log_summary() {
 */
 workflow {
      
-    // Order of URLs is CB, CT, CE 
+    // Order of URLs is CB, CT, CE, CN, Sp27/30
     seqrun_files = Channel.of([
         '"https://docs.google.com/spreadsheets/d/1IJHMLwuaxS_sEO31TyK5NLxPX7_qSd0bHNKverAv8-0/export?gid=1386059628&format=tsv"',
         '"https://docs.google.com/spreadsheets/d/1mqXOlUX7UeiPBe8jfAwFZnqlzhb7X-eKGK_TydT7Gx4/export?gid=1642815395&format=tsv"',
         '"https://docs.google.com/spreadsheets/d/1Rts4CZxkDiid3hux7EpE7CBAQfole6oWQs61dorYBX0/export?gid=538533765&format=tsv"',
-        '"https://docs.google.com/spreadsheets/d/1-5EiJHmMqVBm0Emj_wekdDRv_-dAdmmwS9poz_Jxb90/export?gid=578306341&format=tsv"'
+        '"https://docs.google.com/spreadsheets/d/1-5EiJHmMqVBm0Emj_wekdDRv_-dAdmmwS9poz_Jxb90/export?gid=578306341&format=tsv"',
+        '"https://docs.google.com/spreadsheets/d/1ROwLouv2zlkb1cEPAHvvhu6DY-O6CsWKHpnX2a8gP5E/export?gid=0&format=tsv"'
     ])
-    // NEED TO ADD A SHEET THAT CONTAINS SP27 AND SP30
 
     seq_ch = get_seqrun(seqrun_files)                                           
             .splitCsv(sep: "\t",header: true)
@@ -476,7 +476,7 @@ process assemble {
     """
     mkdir -p ${species}/asm_stat/
     mkdir -p ${species}/assemblies/
-    hifiasm -f0 -l0 -t 48 -o ${uniq.baseName}.${strain}.inbred.asm $uniq
+    hifiasm -f0 -l0 -t ${task.cpus} -o ${uniq.baseName}.${strain}.inbred.asm $uniq
     awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa
     stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa.stats
     """
@@ -550,7 +550,7 @@ process blobtools {
     path("${species}/asm_stat/filtered/${strain}/${asm_fa.baseName}.filtered.fa.stats"), emit: filtAsmStat
     path("${species}/asm_stat/filtered/${strain}/png/${strain}_blobDir.blob.circle.png")
     path("${species}/asm_stat/filtered/${strain}/png/${strain}_nematoda_only_blobDir.blob.circle.png")
-    path("${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out")
+    path("${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out")
 
 
     script:
@@ -571,20 +571,31 @@ process blobtools {
         ${species}/asm_stat/filtered/${strain}_blobDir
 
     # BLASTing assembly contigs:
-    blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
-        -query ${asm_fa} \
-        -outfmt "6 qseqid staxids bitscore std" \
-        -max_target_seqs 3 \
-        -max_hsps 1 \
-        -evalue 1e-10 \
-        -num_threads ${task.cpus} \
-        -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out
-        # adjust evalue cutoff??? Increase/decrease number of returned matches?
+    #blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
+    #    -query ${asm_fa} \
+    #    -outfmt "6 qseqid staxids bitscore std" \
+    #    -max_target_seqs 3 \
+    #    -max_hsps 1 \
+    #    -evalue 1e-10 \
+    #    -num_threads ${task.cpus} \
+    #    -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out
+    #    # adjust evalue cutoff??? Increase/decrease number of returned matches?
+
+    # DIAMOND to taxonomically annotate contigs
+    diamond blastx \
+        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot/reference_proteomes.dmnd \
+        --query ${asm_fa} \
+        --faster \
+        --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
+        --max-target-seqs 5 \
+        --evalue 1e-10 \
+        --threads ${task.cpus} \
+        --out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
 
 
-    # Adding coverage and BLAST hits to BlobDir:
+    # Adding coverage and diamond hits to BlobDir:
     blobtools add \
-        --hits ${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out \
+        --hits ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out \
         --taxrule bestsumorder \
         --taxdump /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/taxdump \
         --cov ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam \
@@ -640,7 +651,7 @@ process busco {
 
     script:
     """
-    busco -i $filt_asm -c 12 -m genome -l /vast/eande106/projects/Nicolas/WI_PacBio_genomes/annotation/elegans/busco_downloads/lineages/nematoda_odb10/ -o ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco 
+    busco -i $filt_asm -c ${task.cpus} -m genome -l /vast/eande106/projects/Nicolas/WI_PacBio_genomes/annotation/elegans/busco_downloads/lineages/nematoda_odb10/ -o ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco --offline
 
     echo -e "strain\tbusco_completeness\tasm_path" > header.tsv
     grep "C:" ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/short_summary.specific.nematoda_odb10.${filt_asm.baseName}.busco.txt > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv
