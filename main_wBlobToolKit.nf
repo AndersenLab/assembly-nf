@@ -318,14 +318,16 @@ process get_seqrun {
     wget -O sp2.csv ${seqrun_files[1]}
     wget -O sp3.csv ${seqrun_files[2]}
     wget -O sp4.csv ${seqrun_files[3]}
+    wget -O sp5.csv ${seqrun_files[4]}
 
     awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CB"}' sp.csv > cb.tsv
     awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CT"}' sp2.csv > ct.tsv
     awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CE"}' sp3.csv > ce.tsv
     awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,"CN"}' sp4.csv > cn.tsv
+    awk -F'\t' -v OFS='\t' 'NR != 1 {print \$3,\$1}' sp5.csv > specialSp.tsv
 
     echo -e "sample\tspecies" > header.tsv
-    cat header.tsv cb.tsv ct.tsv ce.tsv cn.tsv | uniq  > sp2str_table.tsv
+    cat header.tsv cb.tsv ct.tsv ce.tsv cn.tsv specialSp.tsv | uniq  > sp2str_table.tsv
 
     #awk -F ',' -v OFS='\t' '{print \$4,\$5}' sp.csv |\
     #sed 's/C\\.[[:space:]]*elegans/CE/' | \
