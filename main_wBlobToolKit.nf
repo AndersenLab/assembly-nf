@@ -240,16 +240,18 @@ workflow {
             .map { row -> tuple(row.strain, row.asm_fa, row.species) }
 
         // Need to merge blob_ch and merg_bam_ch to get a final tuple of strain, asm_fa, species, (potentially merged) bam
+        read_uniq_ch = markdup.out.uniq.map { strain, bam, species -> tuple(strain, bam)
+
         final_blob_ch = blob_ch
-                        .join(merg_bam_ch)
-                        .map { strain, asm_fa, species1, bam, species2 -> tuple(strain, asm_fa, species1, bam) }
+                        .join(read_uniq_ch)
+                        .map { strain, asm_fa, species, bam -> tuple(strain, asm_fa, species, bam) }
                         // .view()
     
         blobtools(final_blob_ch)                         
 
         filtasm_ch = blobtools.out.filtasm
                 .map { strain, filt_asm, species -> tuple(strain, filt_asm, species) }
-                .view()
+                //.view()
 
         busco(filtasm_ch)
 
@@ -266,22 +268,24 @@ workflow {
 
     if (params.blobtools == "yes") {       // This would also need params.type to be equal to 'reads'
 
+        read_uniq_ch = markdup.out.uniq.map { strain, bam, species -> tuple(strain, bam)
+
         blob_ch = assemble.out.asm
-                .join(mapped_sp_bam)          // join by strain
-                .map { strain, asm_fa, species1, bam, species2 -> tuple(strain, asm_fa, species1, bam) }  // drop duplicate species2
-                .view()
+                .join(read_uniq_ch)          // join by strain
+                .map { strain, asm_fa, species, bam -> tuple(strain, asm_fa, species, bam) }  // drop duplicate species2
+                //.view()
     
         blobtools(blob_ch)                         
 
         filtasm_ch = blobtools.out.filtasm
                 .map { strain, filt_asm, species -> tuple(strain, filt_asm, species) }
-                .view()
+                //.view()
 
         busco(filtasm_ch)
 
         filt_asm_stat_ch = blobtools.out.filtAsmStat.collectFile(name: "filt_astat_out.txt", keepHeader: true, skip: 1)
         busco_out_ch = busco.out.bsco.collectFile(name: "busco_scores.tsv", keepHeader: false, skip: 1)
-                    .view()
+                    //.view()
 
         gatherstatsFiltered(filt_asm_stat_ch, busco_out_ch, seq_flat, rstat_ch)
 
@@ -289,7 +293,7 @@ workflow {
         println """
         The parameter --blobtools is only used in conjunction with '--type reads'. If running '--type assembly', blobtools is automatically executed.
         """
-    }else {
+    } else {
         println """
         The parameter --blobtools is equal to null. If being run in '--type assembly' mode, then this is fine. Otherwise, this indicates that when run in mode '--type reads' that the final assemblies will not have blobtools executed to filter out non-Nematoda contigs.
         """
@@ -658,7 +662,7 @@ process busco {
     echo -e "strain\tbusco_completeness\tasm_path" > header.tsv
     grep "C:" ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/short_summary.specific.nematoda_odb10.${filt_asm.baseName}.busco.txt > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv
     awk '{ match(\$0, /C:([0-9.]+)%/, a); print a[1] }' ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv 
-    paste -d '\t' <(echo "$strain") ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv <(echo "/vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/${params.output}/${species}/assemblies/filtered/${strain}/${filt_asm.baseName}.fa") > strain_busco.tsv
+    paste -d '\t' <(echo "$strain") ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv <(echo "${workflow.launchDir}/${params.output}/${species}/assemblies/filtered/${strain}/${filt_asm.baseName}.fa") > strain_busco.tsv
     
     cat header.tsv strain_busco.tsv > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/${filt_asm.baseName}.busco.stat.tsv
     """
@@ -691,7 +695,7 @@ process gatherstatsFiltered {
     cat $seqflat | grep -v "sp2str.txt" | awk -F'\t' 'NF && \$1 != "" {print \$0}' > species.txt    ###### FIX AFTER THE SEQFLAT FILE IS FIXED
     sort -k1,1 species.txt > species_sorted.txt
 
-    grep "^strain" filt_asm_stat.txt | sed 's/N50/X50/g' | sed 's/L50/N50/g' | sed 's/X50/L50/g' | sed 's/N90/X90/g' | sed 's/L90/N90/g' | sed 's/X90/L90/g' | sed 's|#||' | awk -v OFS='\t' '{print \$0, "yield", "mead_readlen", "species", "genome_busco", "asm_path"}' > header.txt
+    grep "^strain" filt_asm_stat.txt | sed 's/N50/X50/g' | sed 's/L50/N50/g' | sed 's/X50/L50/g' | sed 's/N90/X90/g' | sed 's/L90/N90/g' | sed 's/X90/L90/g' | sed 's|#||' | awk -v OFS='\t' '{print \$0, "yield", "means_readlen", "species", "genome_busco", "asm_path"}' > header.txt
     grep -v "^strain" filt_asm_stat.txt | sort -k1,1 > body_filt_asm_stats.txt
 
     join -t \$'\t' body_filt_asm_stats.txt read_stats.txt > body_filt_asm_read_stats.txt

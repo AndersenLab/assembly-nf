@@ -215,16 +215,14 @@ workflow {
                     .collectFile(name: "sp2str.txt", keepHeader: false, newLine: true)
                     
         bam_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-            .ifEmpty { exit 1, "Provided --sample_sheet not found. Please provide the absolute path to a TSV with header strain, asm_fa, species, bam_path. If working with an assembly that was created from merging bams, please provide multiple entries for the same assembly - one entry for each bam." }
+            .ifEmpty { exit 1, "Provided --sample_sheet not found. Please provide the absolute path to a TSV with header strain, asm_fa, species, bam_path, ont_path. If working with an assembly that was created from merging bams, please provide multiple entries for the same assembly - one entry for each bam." }
             .splitCsv(sep: "\t",header: true)
             .map { row -> [row.strain, row.bam_path] } // there will be repeats of strains for those that need bams merged for assessing coverage with blobtools
-            .view()
     
         // Have merge_bam execute for strains and assemblies that have multiple bams - them run markdup to create rstat, then 
         grouped_bam = bam_ch
                 .groupTuple() // like group_by in dplyr
                 .filter { row -> row[1].size() > 1 }
-                .view()
             
         single_ch = bam_ch
                 .groupTuple()
@@ -244,20 +242,20 @@ workflow {
         
         blob_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
             .splitCsv(sep: "\t",header: true)
-            .map { row -> tuple(row.strain, row.asm_fa, row.species) }
+            .map { row -> tuple(row.strain, row.asm_fa, row.species, row.ont_path) }
 
         // Need to merge blob_ch and merg_bam_ch to get a final tuple of strain, asm_fa, species, (potentially merged) bam
+        read_uniq_ch = markdup.out.uniq.map { strain, uniq_bam, species -> tuple(strain, uniq_bam) }
         final_blob_ch = blob_ch
-                        .join(merg_bam_ch)
-                        .map { strain, asm_fa, species1, bam, species2 -> tuple(strain, asm_fa, species1, bam) }
-                        // .view()
+                        .join(read_uniq_ch)
+                        .map { strain, asm_fa, species, ont_path, uniq_bam -> tuple(strain, asm_fa, species, ont_path, uniq_bam) }
+                        .view()
     
         blobtools(final_blob_ch)                         
 
         filtasm_ch = blobtools.out.filtasm
                 .map { strain, filt_asm, species -> tuple(strain, filt_asm, species) }
-                .view()
-
+            
         busco(filtasm_ch)
 
         filt_asm_stat_ch = blobtools.out.filtAsmStat.collectFile(name: "filt_astat_out.txt", keepHeader: true, skip: 1)
@@ -273,9 +271,10 @@ workflow {
 
     if (params.blobtools == "yes") {       // This would also need params.type to be equal to 'reads'
 
+        read_uniq_ch = markdup.out.uniq.map { strain, uniq_bam, species -> tuple(strain, uniq_bam) }
         blob_ch = assemble.out.asm
-                .join(mapped_sp_bam)          // join by strain
-                .map { strain, asm_fa, species1, bam, species2 -> tuple(strain, asm_fa, species1, bam) }  // drop duplicate species2
+                .join(read_uniq_ch)          // join by strain
+                .map { strain, asm_fa, species, uniq_bam -> tuple(strain, asm_fa, species, uniq_bam) }  // drop duplicate species2
                 .view()
     
         blobtools(blob_ch)                         
@@ -557,7 +556,7 @@ process blobtools {
     label 'blobtools'
 
     input:
-    tuple val(strain), path(asm_fa), val(species), path(bam)
+    tuple val(strain), path(asm_fa), val(species), path(ont), path(uniq_bam)
 
     output:
     tuple val(strain), path("${species}/assemblies/filtered/${strain}/${asm_fa.baseName}.filtered.fa"), val(species), emit: filtasm
@@ -572,11 +571,12 @@ process blobtools {
     mkdir -p ${species}/assemblies/filtered/${strain}
     mkdir -p ${species}/asm_stat/filtered/${strain}/png
 
-    samtools fastq -@ ${task.cpus} ${bam} | gzip - > hifi_reads.fq.gz
-    
-    minimap2 -ax map-hifi ${asm_fa} hifi_reads.fq.gz | samtools sort -@ ${task.cpus} -o ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam
+    samtools fastq -@ ${task.cpus} ${uniq_bam} | gzip - > hifi_reads.fq.gz
+    minimap2 -ax map-hifi ${asm_fa} hifi_reads.fq.gz | samtools sort -@ ${task.cpus} -o ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam
+    samtools index -c ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam
 
-    samtools index -c ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam
+    minimap2 -ax map-hifi ${asm_fa} $ont | samtools sort -@ ${task.cpus} -o ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam
+    samtools index -c ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam
 
 
     # Creating a BlobDir:
@@ -601,7 +601,8 @@ process blobtools {
         --hits ${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out \
         --taxrule bestsumorder \
         --taxdump /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/taxdump \
-        --cov ${species}/asm_stat/filtered/${strain}/${bam.baseName}_coverage.bam \
+        --cov ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam \
+        --cov ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam \
         ${species}/asm_stat/filtered/${strain}_blobDir
 
 
@@ -659,7 +660,7 @@ process busco {
     echo -e "strain\tbusco_completeness\tasm_path" > header.tsv
     grep "C:" ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/short_summary.specific.nematoda_odb10.${filt_asm.baseName}.busco.txt > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv
     awk '{ match(\$0, /C:([0-9.]+)%/, a); print a[1] }' ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv 
-    paste -d '\t' <(echo "$strain") ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv <(echo "/vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/${params.output}/${species}/assemblies/filtered/${strain}/${filt_asm.baseName}.fa") > strain_busco.tsv
+    paste -d '\t' <(echo "$strain") ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv <(echo "${workflow.launchDir}/${params.output}/${species}/assemblies/filtered/${strain}/${filt_asm.baseName}.fa") > strain_busco.tsv
     
     cat header.tsv strain_busco.tsv > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/${filt_asm.baseName}.busco.stat.tsv
     """
