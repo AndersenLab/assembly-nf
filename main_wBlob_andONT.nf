@@ -563,7 +563,7 @@ process blobtools {
     path("${species}/asm_stat/filtered/${strain}/${asm_fa.baseName}.filtered.fa.stats"), emit: filtAsmStat
     path("${species}/asm_stat/filtered/${strain}/png/${strain}_blobDir.blob.circle.png")
     path("${species}/asm_stat/filtered/${strain}/png/${strain}_nematoda_only_blobDir.blob.circle.png")
-    path("${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out")
+    path("${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out")
 
 
     script:
@@ -584,21 +584,22 @@ process blobtools {
         --fasta ${asm_fa} \
         ${species}/asm_stat/filtered/${strain}_blobDir
 
-    # BLASTing assembly contigs:
-    blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
-        -query ${asm_fa} \
-        -outfmt "6 qseqid staxids bitscore std" \
-        -max_target_seqs 3 \
-        -max_hsps 1 \
-        -evalue 1e-10 \
-        -num_threads ${task.cpus} \
-        -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out
-        # adjust evalue cutoff??? Increase/decrease number of returned matches?
+
+    # DIAMOND to taxonomically annotate contigs
+    diamond blastx \
+        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot/reference_proteomes.dmnd \
+        --query ${asm_fa} \
+        --faster \
+        --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
+        --max-target-seqs 5 \
+        --evalue 1e-10 \
+        --threads ${task.cpus} \
+        --out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
 
 
     # Adding coverage and BLAST hits to BlobDir:
     blobtools add \
-        --hits ${species}/asm_stat/filtered/${strain}/${strain}_asm_blast.out \
+        --hits ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out \
         --taxrule bestsumorder \
         --taxdump /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/taxdump \
         --cov ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam \
