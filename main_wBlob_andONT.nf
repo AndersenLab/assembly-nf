@@ -272,9 +272,15 @@ workflow {
     if (params.blobtools == "yes") {       // This would also need params.type to be equal to 'reads'
 
         read_uniq_ch = markdup.out.uniq.map { strain, uniq_bam, species -> tuple(strain, uniq_bam) }
+        
+        ont_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+            .splitCsv(sep: "\t",header: true)
+            .map { row -> tuple(row.strain, row.ont_path) }
+
         blob_ch = assemble.out.asm
+                .join(ont_ch)
                 .join(read_uniq_ch)          // join by strain
-                .map { strain, asm_fa, species, uniq_bam -> tuple(strain, asm_fa, species, uniq_bam) }  // drop duplicate species2
+                .map { strain, asm_fa, species, ont_path, uniq_bam -> tuple(strain, asm_fa, species, ont_path, uniq_bam) }  
                 .view()
     
         blobtools(blob_ch)                         
@@ -585,9 +591,10 @@ process blobtools {
         ${species}/asm_stat/filtered/${strain}_blobDir
 
 
-    # DIAMOND to taxonomically annotate contigs
+    # DIAMOND to taxonomically annotate contigss
+    # old DB that does not have C. tropicalis: /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot/reference_proteomes.dmnd
     diamond blastx \
-        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot/reference_proteomes.dmnd \
+        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCT_final/reference_proteomes_plus_CT.dmnd \
         --query ${asm_fa} \
         --faster \
         --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \

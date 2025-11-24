@@ -240,7 +240,7 @@ workflow {
             .map { row -> tuple(row.strain, row.asm_fa, row.species) }
 
         // Need to merge blob_ch and merg_bam_ch to get a final tuple of strain, asm_fa, species, (potentially merged) bam
-        read_uniq_ch = markdup.out.uniq.map { strain, bam, species -> tuple(strain, bam)
+        read_uniq_ch = markdup.out.uniq.map { strain, bam, species -> tuple(strain, bam) }
 
         final_blob_ch = blob_ch
                         .join(read_uniq_ch)
@@ -268,7 +268,7 @@ workflow {
 
     if (params.blobtools == "yes") {       // This would also need params.type to be equal to 'reads'
 
-        read_uniq_ch = markdup.out.uniq.map { strain, bam, species -> tuple(strain, bam)
+        read_uniq_ch = markdup.out.uniq.map { strain, bam, species -> tuple(strain, bam) }
 
         blob_ch = assemble.out.asm
                 .join(read_uniq_ch)          // join by strain
@@ -417,7 +417,7 @@ process markdup {
     script:
     """
     mkdir -p ${species}/read_stat/
-    pbmarkdup $bam ${bam.baseName}.uniq.fasta --dup-file ${bam.baseName}.dups.fasta
+    pbmarkdup $bam ${bam.baseName}.uniq.fasta --log-level INFO --dup-file ${bam.baseName}.dups.fasta
     count="\$(grep '^>' ${bam.baseName}.uniq.fasta | wc -l)"; echo \$count > read_yield.txt
     grep -v "^>" ${bam.baseName}.uniq.fasta | awk '{total+=length(\$0); count++} END {if(count>0) print total/count; else print "No sequences found"}' > read_avglen.txt
     paste -d '\t' read_yield.txt read_avglen.txt | awk -v strain=$strain -v OFS='\t' '{print strain,\$0}' > ${species}/read_stat/${bam.baseName}.uniq.fasta.read_stats.txt
@@ -482,7 +482,7 @@ process assemble {
     """
     mkdir -p ${species}/asm_stat/
     mkdir -p ${species}/assemblies/
-    hifiasm -f0 -l0 -t ${task.cpus} -o ${uniq.baseName}.${strain}.inbred.asm $uniq
+    hifiasm -l0 -t ${task.cpus} -o ${uniq.baseName}.${strain}.inbred.asm $uniq
     awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa
     stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa.stats
     """
@@ -588,8 +588,9 @@ process blobtools {
     #    # adjust evalue cutoff??? Increase/decrease number of returned matches?
 
     # DIAMOND to taxonomically annotate contigs
+    # old DB that does not have C. tropicalis: /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot/reference_proteomes.dmnd
     diamond blastx \
-        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot/reference_proteomes.dmnd \
+        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCT_final/reference_proteomes_plus_CT.dmnd \
         --query ${asm_fa} \
         --faster \
         --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
