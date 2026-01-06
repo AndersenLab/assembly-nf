@@ -107,6 +107,7 @@ workflow {
             .flatten()
             .buffer(size: 2)
 
+
     if (params.type == "reads") {  // for running creating asemblies from reads, and not filtering blobtools
     // Call the gensheet process and store the result in a variable
         if (params.source == "umd") {
@@ -332,6 +333,7 @@ process get_seqrun {
 
     echo -e "sample\tspecies" > header.tsv
     cat header.tsv cb.tsv ct.tsv ce.tsv cn.tsv specialSp.tsv | uniq  > sp2str_table.tsv
+    echo -e "asc_res\tasc_res" >> sp2str_table.tsv
 
     #awk -F ',' -v OFS='\t' '{print \$4,\$5}' sp.csv |\
     #sed 's/C\\.[[:space:]]*elegans/CE/' | \
@@ -482,7 +484,7 @@ process assemble {
     """
     mkdir -p ${species}/asm_stat/
     mkdir -p ${species}/assemblies/
-    hifiasm -l0 -t ${task.cpus} -o ${uniq.baseName}.${strain}.inbred.asm $uniq
+    hifiasm -f0 -l0 -t ${task.cpus} -o ${uniq.baseName}.${strain}.inbred.asm $uniq
     awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa
     stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa.stats
     """
