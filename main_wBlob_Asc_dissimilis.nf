@@ -273,7 +273,7 @@ workflow {
 
         blob_ch = assemble.out.asm
                 .join(read_uniq_ch)          // join by strain
-                .map { strain, asm_fa, species, bam -> tuple(strain, asm_fa, species, bam) }  // drop duplicate species2
+                .map { strain, asm_fa, asm_fa_alt, species, bam -> tuple(strain, asm_fa, species, bam) }  
                 //.view()
     
         blobtools(blob_ch)                         
@@ -477,7 +477,7 @@ process assemble {
     tuple val(strain), path(uniq), val(species)
     
     output:
-    tuple val(strain), path("$species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa"), val(species), emit: asm
+    tuple val(strain), path("$species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa"), path("$species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.a_ctg.fa"), val(species), emit: asm
     path("$species/asm_stat/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa.stats"), emit: astat
 
     script:
