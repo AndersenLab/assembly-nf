@@ -340,6 +340,7 @@ process get_seqrun {
 
     echo -e "sample\tspecies" > header.tsv
     cat header.tsv cb.tsv ct.tsv ce.tsv cn.tsv specialSp.tsv | uniq  > sp2str_table.tsv
+    echo -e "asc_res\tasc_res" >> sp2str_table.tsv
 
     #awk -F ',' -v OFS='\t' '{print \$4,\$5}' sp.csv |\
     #sed 's/C\\.[[:space:]]*elegans/CE/' | \
