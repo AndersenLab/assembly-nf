@@ -618,7 +618,7 @@ process blobtools {
 
     # Filtering out non-Nematoda contigs:                                                            
     blobtools filter \
-        --param bestsumorder_phylum--Inv=Nematoda \
+        --param bestsumorder_phylum--Inv=Nematoda,no-hit \
         --output ${species}/asm_stat/filtered/${strain}_blobDir/${strain}_nematoda_only_blobDir \
         --fasta ${asm_fa} \
         ${species}/asm_stat/filtered/${strain}_blobDir
