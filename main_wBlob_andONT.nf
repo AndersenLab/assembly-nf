@@ -663,7 +663,7 @@ process busco {
 
     script:
     """
-    busco -i $filt_asm -c 12 -m genome -l /vast/eande106/projects/Nicolas/WI_PacBio_genomes/annotation/elegans/busco_downloads/lineages/nematoda_odb10/ -o ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco 
+    busco -i $filt_asm -c ${task.cpus} -m genome -l /vast/eande106/projects/Nicolas/WI_PacBio_genomes/annotation/elegans/busco_downloads/lineages/nematoda_odb10/ -o ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco --offline
 
     echo -e "strain\tbusco_completeness\tasm_path" > header.tsv
     grep "C:" ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/short_summary.specific.nematoda_odb10.${filt_asm.baseName}.busco.txt > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv
