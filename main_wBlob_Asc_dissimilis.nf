@@ -581,26 +581,26 @@ process blobtools {
         ${species}/asm_stat/filtered/${strain}_blobDir
 
     # BLASTing assembly contigs:
-    #blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
-    #    -query ${asm_fa} \
-    #    -outfmt "6 qseqid staxids bitscore std" \
-    #    -max_target_seqs 3 \
-    #    -max_hsps 1 \
-    #    -evalue 1e-10 \
-    #    -num_threads ${task.cpus} \
-    #    -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
+    blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
+        -query ${asm_fa} \
+        -outfmt "6 qseqid staxids bitscore std" \
+        -max_target_seqs 3 \
+        -max_hsps 1 \
+        -evalue 1e-10 \
+        -num_threads ${task.cpus} \
+        -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
 
 
     # DIAMOND to taxonomically annotate contigs
-    diamond blastx \
-        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCTandAscarislumbricoides/reference_proteomes_plus_CTandAL.dmnd \
-        --query ${asm_fa} \
-        --faster \
-        --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
-        --max-target-seqs 5 \
-        --evalue 1e-10 \
-        --threads ${task.cpus} \
-        --out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
+    #diamond blastx \
+    #    --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCTandAscarislumbricoides/reference_proteomes_plus_CTandAL.dmnd \
+    #    --query ${asm_fa} \
+    #    --faster \
+    #    --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
+    #    --max-target-seqs 5 \
+    #    --evalue 1e-10 \
+    #    --threads ${task.cpus} \
+    #    --out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
 
 
     # Adding coverage and diamond hits to BlobDir:

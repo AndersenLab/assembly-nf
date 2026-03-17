@@ -228,7 +228,7 @@ workflow {
                 .groupTuple()
                 .filter { row -> row[1].size() == 1 }
                 .map { row -> row[1] = row[1].first()
-                    return row }  
+                    return row } 
 
         merged_bams = merge_bam(grouped_bam)
 
@@ -593,14 +593,22 @@ process blobtools {
         --fasta ${asm_fa} \
         ${species}/asm_stat/filtered/${strain}_blobDir
 
+    #blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
+    #    -query ${asm_fa} \
+    #    -outfmt "6 qseqid staxids bitscore std" \
+    #    -max_target_seqs 3 \
+    #    -max_hsps 1 \
+    #    -evalue 1e-10 \
+    #    -num_threads ${task.cpus} \
+    #    -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
 
     # DIAMOND to taxonomically annotate contigss
     diamond blastx \
         --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCTandAscarislumbricoides/reference_proteomes_plus_CTandAL.dmnd \
         --query ${asm_fa} \
-        --faster \
+        --sensitive \
         --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
-        --max-target-seqs 5 \
+        --max-target-seqs 10 \
         --evalue 1e-10 \
         --threads ${task.cpus} \
         --out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
