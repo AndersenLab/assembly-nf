@@ -334,6 +334,9 @@ process get_seqrun {
     echo -e "sample\tspecies" > header.tsv
     cat header.tsv cb.tsv ct.tsv ce.tsv cn.tsv specialSp.tsv | uniq  > sp2str_table.tsv
     echo -e "asc_res\tasc_res" >> sp2str_table.tsv
+    echo -e "a_caninum_BCR\tanclyostoma_caninum" >> sp2str_table.tsv
+    echo -e "a_caninum_WMD\tanclyostoma_caninum" >> sp2str_table.tsv
+    echo -e "h_spumosa\theterakis_spumosa" >> sp2str_table.tsv
 
     #awk -F ',' -v OFS='\t' '{print \$4,\$5}' sp.csv |\
     #sed 's/C\\.[[:space:]]*elegans/CE/' | \
@@ -484,7 +487,7 @@ process assemble {
     """
     mkdir -p ${species}/asm_stat/
     mkdir -p ${species}/assemblies/
-    hifiasm -f0 -l0 -t ${task.cpus} -o ${uniq.baseName}.${strain}.inbred.asm $uniq
+    hifiasm -f39 -l0 -t ${task.cpus} -o ${uniq.baseName}.${strain}.inbred.asm $uniq
     awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.p_ctg.fa
     awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.inbred.asm.bp.a_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.inbred.asm.bp.a_ctg.fa
 
@@ -581,26 +584,26 @@ process blobtools {
         ${species}/asm_stat/filtered/${strain}_blobDir
 
     # BLASTing assembly contigs:
-    blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
-        -query ${asm_fa} \
-        -outfmt "6 qseqid staxids bitscore std" \
-        -max_target_seqs 3 \
-        -max_hsps 1 \
-        -evalue 1e-10 \
-        -num_threads ${task.cpus} \
-        -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
+    #blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
+    #    -query ${asm_fa} \
+    #    -outfmt "6 qseqid staxids bitscore std" \
+    #    -max_target_seqs 3 \
+    #    -max_hsps 1 \
+    #    -evalue 1e-10 \
+    #    -num_threads ${task.cpus} \
+    #    -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
 
 
     # DIAMOND to taxonomically annotate contigs
-    #diamond blastx \
-    #    --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCTandAscarislumbricoides/reference_proteomes_plus_CTandAL.dmnd \
-    #    --query ${asm_fa} \
-    #    --faster \
-    #    --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
-    #    --max-target-seqs 5 \
-    #    --evalue 1e-10 \
-    #    --threads ${task.cpus} \
-    #    --out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
+    diamond blastx \
+        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCTandAscarislumbricoides/reference_proteomes_plus_CTandAL.dmnd \
+        --query ${asm_fa} \
+        --sensitive \
+        --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
+        --max-target-seqs 5 \
+        --evalue 1e-10 \
+        --threads ${task.cpus} \
+        --out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
 
 
     # Adding coverage and diamond hits to BlobDir:
