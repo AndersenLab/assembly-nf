@@ -273,14 +273,14 @@ workflow {
 
         read_uniq_ch = markdup.out.uniq.map { strain, uniq_bam, species -> tuple(strain, uniq_bam) }
         
-        ont_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-            .splitCsv(sep: "\t",header: true)
-            .map { row -> tuple(row.strain, row.ont_path) }
+        //ont_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+        //   .splitCsv(sep: "\t",header: true)
+        //    .map { row -> tuple(row.strain, row.ont_path) }
 
         blob_ch = assemble.out.asm
-                .join(ont_ch)
+                //.join(ont_ch)
                 .join(read_uniq_ch)          // join by strains
-                .map { strain, asm_fa, asm_fa_alt, species, ont_path, uniq_bam -> tuple(strain, asm_fa, species, ont_path, uniq_bam) }  
+                .map { strain, asm_fa, asm_fa_alt, species, uniq_bam -> tuple(strain, asm_fa, species, uniq_bam) }  
                 .view()
     
         blobtools(blob_ch)                         
@@ -565,7 +565,7 @@ process blobtools {
     label 'blobtools'
 
     input:
-    tuple val(strain), path(asm_fa), val(species), path(ont), path(uniq_bam)
+    tuple val(strain), path(asm_fa), val(species), path(uniq_bam)
 
     output:
     tuple val(strain), path("${species}/assemblies/filtered/${strain}/${asm_fa.baseName}.filtered.fa"), val(species), emit: filtasm
@@ -584,10 +584,6 @@ process blobtools {
     minimap2 -ax map-hifi ${asm_fa} hifi_reads.fq.gz | samtools sort -@ ${task.cpus} -o ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam
     samtools index -c ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam
 
-    minimap2 -ax map-hifi ${asm_fa} $ont | samtools sort -@ ${task.cpus} -o ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam
-    samtools index -c ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam
-
-
     # Creating a BlobDir:
     blobtools create \
         --fasta ${asm_fa} \
@@ -602,11 +598,11 @@ process blobtools {
     #    -num_threads ${task.cpus} \
     #    -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
 
-    # DIAMOND to taxonomically annotate contigss
+    # DIAMOND to taxonomically annotate contigs
     diamond blastx \
         --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCTandAscarislumbricoides/reference_proteomes_plus_CTandAL.dmnd \
         --query ${asm_fa} \
-        --fast \
+        --faster \
         --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
         --max-target-seqs 10 \
         --evalue 1e-10 \
@@ -620,7 +616,6 @@ process blobtools {
         --taxrule bestsumorder \
         --taxdump /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/taxdump \
         --cov ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam \
-        --cov ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam \
         ${species}/asm_stat/filtered/${strain}_blobDir
 
 
@@ -667,7 +662,7 @@ process busco {
 
     output:
     path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/${filt_asm.baseName}.busco.stat.tsv"), emit: bsco
-    // path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv")
+    ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/short_summary.specific.nematoda_odb10.${filt_asm.baseName}.busco.txt
     // path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv")
 
 
