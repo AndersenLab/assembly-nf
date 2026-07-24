@@ -273,14 +273,14 @@ workflow {
 
         read_uniq_ch = markdup.out.uniq.map { strain, uniq_bam, species -> tuple(strain, uniq_bam) }
         
-        //ont_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
-        //   .splitCsv(sep: "\t",header: true)
-        //    .map { row -> tuple(row.strain, row.ont_path) }
+        ont_ch = Channel.fromPath(params.sample_sheet, checkIfExists: true)
+            .splitCsv(sep: "\t",header: true)
+            .map { row -> tuple(row.strain, row.ont_path) }
 
         blob_ch = assemble.out.asm
-                //.join(ont_ch)
+                .join(ont_ch)
                 .join(read_uniq_ch)          // join by strains
-                .map { strain, asm_fa, asm_fa_alt, species, uniq_bam -> tuple(strain, asm_fa, species, uniq_bam) }  
+                .map { strain, asm_fa, asm_fa_alt, species, ont_path, uniq_bam -> tuple(strain, asm_fa, species, ont_path, uniq_bam) }  
                 .view()
     
         blobtools(blob_ch)                         
@@ -341,9 +341,6 @@ process get_seqrun {
     echo -e "sample\tspecies" > header.tsv
     cat header.tsv cb.tsv ct.tsv ce.tsv cn.tsv specialSp.tsv | uniq  > sp2str_table.tsv
     echo -e "asc_res\tasc_res" >> sp2str_table.tsv
-    echo -e "a_caninum_BCR\tanclyostoma_caninum" >> sp2str_table.tsv
-    echo -e "a_caninum_WMD\tanclyostoma_caninum" >> sp2str_table.tsv
-    echo -e "h_spumosa\theterakis_spumosa" >> sp2str_table.tsv
 
     #awk -F ',' -v OFS='\t' '{print \$4,\$5}' sp.csv |\
     #sed 's/C\\.[[:space:]]*elegans/CE/' | \
@@ -487,8 +484,8 @@ process assemble {
     tuple val(strain), path(uniq), val(species), path(ont)
     
     output:
-    tuple val(strain), path("$species/assemblies/${uniq.baseName}.${strain}.wONT.asm.p_ctg.fa"), path("$species/assemblies/${uniq.baseName}.${strain}.wONT.asm.a_ctg.fa"), val(species), emit: asm
-    path("$species/asm_stat/${uniq.baseName}.${strain}.wONT.asm.p_ctg.fa.stats"), emit: astat
+    tuple val(strain), path("$species/assemblies/${uniq.baseName}.${strain}.inbred.wONT.asm.bp.p_ctg.fa"), path("$species/assemblies/${uniq.baseName}.${strain}.inbred.wONT.asm.bp.a_ctg.fa"), val(species), emit: asm
+    path("$species/asm_stat/${uniq.baseName}.${strain}.inbred.wONT.asm.bp.p_ctg.fa.stats"), emit: astat
 
     script:
     """
@@ -498,12 +495,12 @@ process assemble {
     ### Only HiFi reads for assembly
     # hifiasm -f0 -l0 -t ${task.cpus} -o ${uniq.baseName}.${strain}.inbred.asm $uniq
     ### HiFi reads and ultralong ONT for assembly
-    hifiasm -f39 --primary -o ${uniq.baseName}.${strain}.wONT.asm -t${task.cpus} --ul $ont $uniq
+    hifiasm -f39 -l0 -o ${uniq.baseName}.${strain}.inbred.wONT.asm -t${task.cpus} --ul $ont $uniq
 
-    awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.wONT.asm.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.wONT.asm.p_ctg.fa
-    awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.wONT.asm.a_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.wONT.asm.a_ctg.fa
+    awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.inbred.wONT.asm.bp.p_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.inbred.wONT.asm.bp.p_ctg.fa
+    awk '/^S/{print ">"\$2;print \$3}' ${uniq.baseName}.${strain}.inbred.wONT.asm.bp.a_ctg.gfa  > $species/assemblies/${uniq.baseName}.${strain}.inbred.wONT.asm.bp.a_ctg.fa
 
-    stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.${strain}.wONT.asm.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.${strain}.wONT.asm.p_ctg.fa.stats
+    stats.sh -format=6 -in=$species/assemblies/${uniq.baseName}.${strain}.inbred.wONT.asm.bp.p_ctg.fa -format=6 -gcformat=0 | awk -v strain=$strain -v OFS='\t' 'NR == 1 {print "strain", \$0} NR > 1 {print strain, \$0}' > $species/asm_stat/${uniq.baseName}.${strain}.inbred.wONT.asm.bp.p_ctg.fa.stats
     """
 
     stub:
@@ -537,9 +534,6 @@ process gatherstats {
 
     script:
     """
-    # For when a directory is provided to --outdir 
-    mkdir -p ${odir}
-
     cat $astat > assembly_stats.txt
     cat $rstat | sort -k1,1 > read_stats.txt
     grep "^strain" assembly_stats.txt | sed 's/N50/X50/g' | sed 's/L50/N50/g' | sed 's/X50/L50/g' > header_asm.txt
@@ -571,7 +565,7 @@ process blobtools {
     label 'blobtools'
 
     input:
-    tuple val(strain), path(asm_fa), val(species), path(uniq_bam)
+    tuple val(strain), path(asm_fa), val(species), path(ont), path(uniq_bam)
 
     output:
     tuple val(strain), path("${species}/assemblies/filtered/${strain}/${asm_fa.baseName}.filtered.fa"), val(species), emit: filtasm
@@ -590,12 +584,16 @@ process blobtools {
     minimap2 -ax map-hifi ${asm_fa} hifi_reads.fq.gz | samtools sort -@ ${task.cpus} -o ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam
     samtools index -c ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam
 
+    minimap2 -ax map-hifi ${asm_fa} $ont | samtools sort -@ ${task.cpus} -o ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam
+    samtools index -c ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam
+
+
     # Creating a BlobDir:
     blobtools create \
         --fasta ${asm_fa} \
         ${species}/asm_stat/filtered/${strain}_blobDir
 
-    #blastn -db /vast/eande106/data/DBs/NCBI/BLAST/core_nt/core_nt \
+    #blastn -db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/core_nt/core_nt \
     #    -query ${asm_fa} \
     #    -outfmt "6 qseqid staxids bitscore std" \
     #    -max_target_seqs 3 \
@@ -604,11 +602,11 @@ process blobtools {
     #    -num_threads ${task.cpus} \
     #    -out ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out
 
-    # DIAMOND to taxonomically annotate contigs
+    # DIAMOND to taxonomically annotate contigss
     diamond blastx \
-        --db /vast/eande106/data/DBs/NCBI/DIAMOND/uniprot_w_Ctropicalis_Alumbricoides/reference_proteomes_plus_CTandAL.dmnd \
+        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCTandAscarislumbricoides/reference_proteomes_plus_CTandAL.dmnd \
         --query ${asm_fa} \
-        --sensitive \
+        --faster \
         --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
         --max-target-seqs 10 \
         --evalue 1e-10 \
@@ -620,8 +618,9 @@ process blobtools {
     blobtools add \
         --hits ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out \
         --taxrule bestsumorder \
-        --taxdump /vast/eande106/data/DBs/NCBI/taxdump \
+        --taxdump /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/taxdump \
         --cov ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam \
+        --cov ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam \
         ${species}/asm_stat/filtered/${strain}_blobDir
 
 
@@ -668,13 +667,13 @@ process busco {
 
     output:
     path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/${filt_asm.baseName}.busco.stat.tsv"), emit: bsco
-    path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/short_summary.specific.nematoda_odb10.${filt_asm.baseName}.busco.txt")
+    // path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv")
     // path("${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp2.tsv")
 
 
     script:
     """
-    busco -i $filt_asm -c ${task.cpus} -m genome -l /vast/eande106/data/DBs/BUSCO/nematoda_odb10/ -o ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco --offline
+    busco -i $filt_asm -c ${task.cpus} -m genome -l /vast/eande106/projects/Nicolas/WI_PacBio_genomes/annotation/elegans/busco_downloads/lineages/nematoda_odb10/ -o ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco --offline
 
     echo -e "strain\tbusco_completeness\tasm_path" > header.tsv
     grep "C:" ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/short_summary.specific.nematoda_odb10.${filt_asm.baseName}.busco.txt > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv
@@ -700,14 +699,12 @@ process gatherstatsFiltered {
     val(filt_asm_busco)
     val(seqflat)
     val(rstat)
-    
+
     output:
     path("${params.outdir}_filtered_asm_stats.txt"), emit: fstats
 
     script:
     """
-    mkdir -p ${params.outdir}
-    
     cat $filt_asm_stat > filt_asm_stat.txt
     cat $filt_asm_busco > busco_asmPath.txt
     cat $rstat | sort -k1,1 > read_stats.txt

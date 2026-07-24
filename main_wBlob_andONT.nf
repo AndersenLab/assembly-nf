@@ -592,9 +592,8 @@ process blobtools {
 
 
     # DIAMOND to taxonomically annotate contigss
-    # old DB that does not have C. tropicalis: /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot/reference_proteomes.dmnd
     diamond blastx \
-        --db /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/uniprot_wCT_final/reference_proteomes_plus_CT.dmnd \
+        --db /vast/eande106/data/DBs/NCBI/DIAMOND/uniprot_w_Ctropicalis/reference_proteomes_plus_CT.dmnd \
         --query ${asm_fa} \
         --faster \
         --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
@@ -608,7 +607,7 @@ process blobtools {
     blobtools add \
         --hits ${species}/asm_stat/filtered/${strain}/${strain}_asm_diamond.out \
         --taxrule bestsumorder \
-        --taxdump /vast/eande106/projects/Lance/THESIS_WORK/assemblies/assembly-nf/blobtools/taxdump \
+        --taxdump /vast/eande106/data/DBs/NCBI/taxdump \
         --cov ${species}/asm_stat/filtered/${strain}/${uniq_bam.baseName}_coverage.bam \
         --cov ${species}/asm_stat/filtered/${strain}/${ont.baseName}_coverage.bam \
         ${species}/asm_stat/filtered/${strain}_blobDir
@@ -663,7 +662,7 @@ process busco {
 
     script:
     """
-    busco -i $filt_asm -c ${task.cpus} -m genome -l /vast/eande106/projects/Nicolas/WI_PacBio_genomes/annotation/elegans/busco_downloads/lineages/nematoda_odb10/ -o ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco --offline
+    busco -i $filt_asm -c ${task.cpus} -m genome -l /vast/eande106/data/DBs/BUSCO/nematoda_odb10/ -o ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco --offline
 
     echo -e "strain\tbusco_completeness\tasm_path" > header.tsv
     grep "C:" ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/short_summary.specific.nematoda_odb10.${filt_asm.baseName}.busco.txt > ${species}/asm_stat/filtered/${strain}/${filt_asm.baseName}.busco/tmp.tsv
