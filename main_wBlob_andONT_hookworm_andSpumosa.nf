@@ -608,7 +608,7 @@ process blobtools {
     diamond blastx \
         --db /vast/eande106/data/DBs/NCBI/DIAMOND/uniprot_w_Ctropicalis_Alumbricoides/reference_proteomes_plus_CTandAL.dmnd \
         --query ${asm_fa} \
-        --sensitive \
+        --faster \
         --outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore \
         --max-target-seqs 10 \
         --evalue 1e-10 \
