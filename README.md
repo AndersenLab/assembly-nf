@@ -9,12 +9,14 @@ Nextflow pipeline for PacBio sequencing quality control, *de novo* genome assemb
                                        __/ |                     
                                       |___/                      
 ```
-By default, the pipeline will assemble genomes in "inbred" mode (i.e., will not purge duplicate haplotigs) for hifiasm.
+By default, this branch of ```assembly-nf``` will assemble genomes with duplicate haplotig purging and produce a primary haploid assembly using hifiasm with both HiFi and ONT data.
+
+Ensure to manually add a respective strain and species to the ```get_seqrun``` process that matches the ones provided on the ```--sample_sheet```. By default, this pipeline was designed for assembling genomes for self-fertilizing *Caenorhabditis* species and pulls master strain <> species records from Google sheets. 
 
 ## --source
 If running with --source umd, then provide the folder in ```/vast/eande106/data/transfer/raw``` where sequencing data has been deposited (e.g. ```--raw_dir 20250314_PacBio```). When running in ```--source umd```, the output directory will be set to ```"${raw_dir}-assembly"``` even if you specify an ```--outdir```.
 
-If running with ```--source default```, then provide a ```--sample_sheet``` that contains columns "strain" and "bam_path" (include these headers and absolute paths to bam files). The user can specify an ```--outdir``` where all genomes and statistics will be deposited. 
+If running with ```--source default```, then provide a ```--sample_sheet``` that contains columns "strain", "bam_path", and "ont_path" (include these headers and absolute paths to seq files). This branch of ```assembly-nf``` expects both HiFi and ONT data for a joint assembly. The user can specify an ```--outdir``` where all genomes and statistics will be deposited. 
 
 ## --ex_master
 If running with ```--ext_master```, and using the master sheet for merging and re-assembling, then provide either a ```--sample_sheet``` or ```--raw_dir``` in addition to the ```--ext_master``` sheet for running in ```--source default``` or ```umd```, respectively. If ```--ext_master``` is run with NO matching strains in raw.dir or the provided sample_sheet, the following error will occur:"ERROR ~ Unknown method invocation `contains` on PoisonPill type -- Did you mean? toString"
