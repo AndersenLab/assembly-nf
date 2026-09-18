@@ -13,6 +13,8 @@ By default, the pipeline will assemble genomes in "inbred" mode (i.e., will not 
 
 This pipeline can produce assemblies using just HiFi seq data (e.g., ```main_wBlobToolKit.nf```) or with HiFi and ONT data (e.g., ```main_wBlobToolKit_andONT.nf```). If ```main_wBlob_andONT.nf``` is used, the user must add a column to the supplied ```--sample_sheet``` with header ```ont_path``` and the absolute path pointing to the ONT seq data.
 
+This pipeline expects unaligned HiFi BAM files and gzipped ONT FASTQ files. We recommend filtering ONT reads for >= 10 kb in length and Phred >= 15 prior to supplying to ```assembly-nf```.
+
 ## --source
 If running with --source umd, then provide the folder in ```/vast/eande106/data/transfer/raw``` where sequencing data has been deposited (e.g. ```--raw_dir 20250314_PacBio```). When running in ```--source umd```, the output directory will be set to ```"${raw_dir}-assembly"``` even if you specify an ```--outdir```.
 
