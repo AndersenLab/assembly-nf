@@ -1,14 +1,9 @@
 Nextflow pipeline for PacBio sequencing quality control, *de novo* genome assembly, and de-contamination of non-*Nematoda* DNA.
-```
-                              _     _                         __ 
-                             | |   | |                       / _|
-  __ _ ___ ___  ___ _ __ ___ | |__ | |_   _            _ __ | |_ 
- / _` / __/ __|/ _ \ '_ ` _ \| '_ \| | | | |  ______  | '_ \|  _|
-| (_| \__ \__ \  __/ | | | | | |_) | | |_| | |______| | | | | |  
- \__,_|___/___/\___|_| |_| |_|_.__/|_|\__, |          |_| |_|_|  
-                                       __/ |                     
-                                      |___/                      
-```
+
+<img alt="assembly-nf/workflow metro map" src="https://github.com/AndersenLab/assembly-nf/blob/main/workflow_animation.svg">
+
+Workflow diagram generated using [nf-metro](https://github.com/seqeralabs/nf-metro).
+
 By default, the pipeline will assemble genomes in "inbred" mode (i.e., will not purge duplicate haplotigs) for hifiasm.
 
 ## --source
